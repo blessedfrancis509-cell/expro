@@ -1,0 +1,6 @@
+{
+  "name": "Trading and Investment Platform",
+  "description": "A professional, sleek investment and trading platform with real-time candlestick charts, leverage multiplier, mock payment gateways, security settings, performance analytics, and automated market alerts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
