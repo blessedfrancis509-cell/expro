@@ -29,17 +29,27 @@ export async function signUpApi(p: { email: string; fullName: string; device?: s
   }
 }
 
-export async function loginApi(email: string): Promise<UserProfile> {
+export async function loginApi(email: string, password?: string): Promise<UserProfile> {
   try {
     const res = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, password }),
     });
-    if (!res.ok) throw new Error('Failed to login on backend');
+    if (!res.ok) {
+      try {
+        const errJson = await res.json();
+        throw new Error(errJson.error || 'Failed to authenticate');
+      } catch {
+        throw new Error('Access denied: Authentication error.');
+      }
+    }
     const data = await res.json();
     return data.user;
-  } catch (e) {
+  } catch (e: any) {
+    if (e.message && (e.message.includes('Access denied') || e.message.includes('passcode') || e.message.includes('password'))) {
+      throw e;
+    }
     console.warn('API error, falling back to local simulation:', e);
     const mockUser: UserProfile = {
       email: email,
@@ -205,3 +215,35 @@ export async function updateSystemConfigApi(config: SystemConfig): Promise<boole
     return true;
   }
 }
+
+export async function fetchSupportMessagesApi(email?: string): Promise<any[]> {
+  try {
+    const url = email 
+      ? `${BASE_URL}/api/support/messages?email=${encodeURIComponent(email)}`
+      : `${BASE_URL}/api/support/messages`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Failed to fetch messages");
+    const data = await res.json();
+    return data.messages || [];
+  } catch (e) {
+    console.warn("Support messages API fallback:", e);
+    return [];
+  }
+}
+
+export async function sendSupportMessageApi(userEmail: string, sender: 'user' | 'agent', text: string): Promise<any> {
+  try {
+    const res = await fetch(`${BASE_URL}/api/support/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userEmail, sender, text }),
+    });
+    if (!res.ok) throw new Error("Failed to send support message");
+    const data = await res.json();
+    return data.message;
+  } catch (e) {
+    console.warn("Support message send fallback:", e);
+    return null;
+  }
+}
+

@@ -10,7 +10,7 @@ import PerformanceAnalytics from './components/PerformanceAnalytics';
 import SignalAlerts from './components/SignalAlerts';
 import ProfileSettings from './components/ProfileSettings';
 import SplashScreen from './components/SplashScreen';
-import { fetchProfileApi, fetchTransactionsApi } from './lib/api';
+import { fetchProfileApi, fetchTransactionsApi, fetchSupportMessagesApi, sendSupportMessageApi } from './lib/api';
 
 // Icons
 import {
@@ -119,6 +119,44 @@ export default function App() {
       }).catch(() => {});
     }
   }, [currentUser?.email, activeTab]);
+
+  // Support messages database sync and periodic polling when chat is open
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    fetchSupportMessagesApi(currentUser.email).then((msgs) => {
+      if (msgs && msgs.length > 0) {
+        setSupportMessages(msgs);
+      }
+    }).catch(() => {});
+    
+    let pollInterval: any = null;
+    if (isSupportOpen) {
+      pollInterval = setInterval(() => {
+        fetchSupportMessagesApi(currentUser.email).then((msgs) => {
+          if (msgs && msgs.length > 0) {
+            setSupportMessages(msgs);
+          }
+        }).catch(() => {});
+      }, 3000);
+    }
+    
+    return () => {
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  }, [currentUser?.email, isSupportOpen]);
+
+  // Real-time server sync for administrative status and balance changes
+  useEffect(() => {
+    if (!currentUser) return;
+    const interval = setInterval(() => {
+      // Sync only when not editing inside admin portal to avoid disruption
+      if (!isAdminOpen) {
+        handleRefreshCurrentUser();
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [currentUser?.email, isAdminOpen]);
 
   const activeAsset = useMemo(() => {
     return assets.find((a) => a.id === activeAssetId) || assets[0];
@@ -288,34 +326,28 @@ export default function App() {
     }, 150);
   };
 
-  const handleSendSupportMessage = (e?: React.FormEvent) => {
+  const handleSendSupportMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!supportInput.trim()) return;
+    if (!supportInput.trim() || !currentUser) return;
 
     const userMsgText = supportInput;
     setSupportInput('');
 
-    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    setSupportMessages(prev => [...prev, { sender: 'user', text: userMsgText, timestamp }]);
+    // Pre-populate message in state for immediate reactivity
+    const tempTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const localMsg = { sender: 'user' as const, text: userMsgText, timestamp: tempTimestamp };
+    setSupportMessages(prev => [...prev, localMsg]);
 
-    setTimeout(() => {
-      let replyStr = "We have parsed your security inquiry. All live clearing requests are synchronized instantly via Exness backend nodes. If you require balance adjustments, please contact Blessed Francis Administrator immediately inside the ADMIN Portal.";
-      
-      const lower = userMsgText.toLowerCase();
-      if (lower.includes('deposit') || lower.includes('withdraw') || lower.includes('fund') || lower.includes('pay')) {
-        replyStr = "For deposits or credit/wire transfers, complete the payment transaction form by tapping the DEPOSIT button inside the header. Pending approvals are securely listed for Blessed Francis Administrator's verification under the Clearance queue.";
-      } else if (lower.includes('admin') || lower.includes('panel') || lower.includes('override')) {
-        replyStr = "The Administrative terminal can be unlocked with the authorized passcode (e.g. 12345678) to override user margins, balances, and KYC parameters globally.";
-      } else if (lower.includes('balance') || lower.includes('money') || lower.includes('dollar') || lower.includes('lost') || lower.includes('profit')) {
-        replyStr = "Asset valuations fluctuate based on dynamic simulated market feeds. Users begin with $10,000.00 in starting balances, and any modifications persist securely until new transactions are authorized.";
+    // Send to backend database
+    await sendSupportMessageApi(currentUser.email, 'user', userMsgText);
+
+    // Refresh messages
+    try {
+      const msgs = await fetchSupportMessagesApi(currentUser.email);
+      if (msgs && msgs.length > 0) {
+        setSupportMessages(msgs);
       }
-
-      setSupportMessages(prev => [...prev, {
-        sender: 'agent',
-        text: replyStr,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }]);
-    }, 1000);
+    } catch (err) {}
   };
 
   // Balances refresh valve
@@ -550,55 +582,103 @@ export default function App() {
       )}
 
       {/* Institutional Top Navigation Header */}
-      <header className="bg-[#181a20] border-b border-zinc-850 px-2 sm:px-4 py-2 flex items-center justify-between gap-1.5 sm:gap-4 sticky top-0 z-30">
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Main Display logo */}
-          <div className="p-1 px-2 rounded bg-[#f0b90b] text-[#0b0e11] font-black tracking-tighter text-xs flex items-center gap-1">
-            EX <span className="text-white bg-[#0b0e11] px-1.5 rounded text-[9px] font-mono leading-none py-0.5">PRO</span>
+      <header className="bg-[#181a20] border-b border-zinc-850 px-3 py-2.5 sm:px-4 sm:py-2.5 flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-4 sticky top-0 z-30">
+        <div className="flex items-center justify-between w-full md:w-auto">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* Main Display logo */}
+            <div className="p-1 px-2 rounded bg-[#f0b90b] text-[#0b0e11] font-black tracking-tighter text-xs flex items-center gap-1">
+              EX <span className="text-white bg-[#0b0e11] px-1.5 rounded text-[9px] font-mono leading-none py-0.5">PRO</span>
+            </div>
+            <span className="text-white font-black text-xs hidden sm:block tracking-wider uppercase">
+              EXNESS EXCHANGE
+            </span>
           </div>
-          <span className="text-white font-black text-xs hidden sm:block tracking-wider uppercase">
-            EXNESS EXCHANGE
-          </span>
+
+          {/* User profile detail spacer (Only screens >= md) */}
+          <div className="hidden md:flex flex-col text-right pr-2">
+            <span className="text-[9px] text-[#8E9AAB] font-extrabold uppercase tracking-widest">Clearing Trader</span>
+            <span className="text-zinc-300 text-xs font-bold font-mono leading-none mt-0.5">{currentUser.fullName}</span>
+          </div>
+
+          {/* Compact action strip shown ONLY on mobile/tablets to prevent crowding */}
+          <div className="flex items-center gap-1.5 md:hidden">
+            {/* Compact Admin Override Trigger */}
+            <button
+              id="mobile-header-admin-portal-toggle"
+              onClick={() => setIsAdminOpen(true)}
+              className="bg-zinc-800 hover:bg-[#f0b90b] hover:text-[#0b0e11] text-[#f0b95b] font-bold p-1.5 rounded-lg text-[10px] flex items-center gap-1 cursor-pointer transition-all uppercase"
+              title="Admin Panel"
+            >
+              <Shield className="h-3.5 w-3.5 text-[#f0b90b]" />
+            </button>
+
+            {/* Compact Screenshot SC button */}
+            <button
+              id="mobile-header-screenshot-sc-btn"
+              onClick={triggerScreenshotFlash}
+              className="bg-zinc-800 hover:bg-[#0070f3] hover:text-white text-zinc-300 font-bold p-1.5 rounded-lg text-[10px] flex items-center gap-1 cursor-pointer transition-all uppercase"
+              title="Capture Screenshot (SC)"
+            >
+              <Camera className="h-3.5 w-3.5 text-[#0070f3]" />
+            </button>
+
+            {/* Compact Support Chat (SC) toggle */}
+            <button
+              onClick={() => setIsSupportOpen(prev => !prev)}
+              className={`p-1.5 rounded-lg text-[10px] flex items-center gap-1 cursor-pointer transition-all uppercase ${
+                isSupportOpen ? 'bg-[#f0b90b] text-[#0b0e11]' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+              }`}
+              title="Secure Support Channel"
+            >
+              <MessageSquare className="h-3.5 w-3.5 text-[#f0b90b]" />
+            </button>
+
+            {/* Session Logout Action */}
+            <button
+              id="mobile-logout-session"
+              onClick={() => {
+                localStorage.removeItem('trading_session_user');
+                setCurrentUser(null);
+              }}
+              className="text-zinc-500 hover:text-white p-1 hover:bg-zinc-805 rounded-lg cursor-pointer transition-all"
+              title="Sign Out"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
 
-        {/* Real-time Demo / Live switches and Wallet indicators */}
-        <div className="flex items-center gap-1.5 sm:gap-3">
+        {/* Real-time Demo/Live Switches, Balance indicators and Deposit Button */}
+        <div className="flex items-center justify-between md:justify-end gap-2 md:gap-3 w-full md:w-auto">
           
-          {/* User profile details split */}
-          <div className="hidden md:flex flex-col text-right pr-2 border-r border-zinc-800">
-            <span className="text-[9px] text-zinc-500 font-extrabold uppercase tracking-widest">Clearing Trader</span>
-            <span className="text-zinc-300 text-xs font-bold font-mono">{currentUser.fullName}</span>
-          </div>
-
-          <div className="flex bg-zinc-950/40 p-0.5 rounded-xl border border-zinc-800">
+          {/* Demo vs Live account switcher toggle group */}
+          <div className="flex bg-zinc-950/40 p-0.5 rounded-xl border border-zinc-850 flex-1 md:flex-initial">
             <button
               id="switch-demo-profile"
               onClick={handleAccountTypeToggle}
-              className={`p-1 px-1.5 sm:px-2.5 rounded-lg text-[9px] font-extrabold uppercase tracking-wide transition-all cursor-pointer ${
+              className={`flex-1 md:flex-initial p-1.5 px-2.5 rounded-lg text-[9px] font-extrabold uppercase tracking-wide transition-all cursor-pointer text-center ${
                 currentUser.isDemo ? 'bg-[#f0b90b] text-[#0b0e11]' : 'text-zinc-500 hover:text-white'
               }`}
             >
-              <span className="hidden sm:inline">DEMO PAPER</span>
-              <span className="inline sm:hidden">DEMO</span>
+              DEMO
             </button>
             <button
               id="switch-live-profile"
               onClick={handleAccountTypeToggle}
-              className={`p-1 px-1.5 sm:px-2.5 rounded-lg text-[9px] font-extrabold uppercase tracking-wide transition-all cursor-pointer ${
+              className={`flex-1 md:flex-initial p-1.5 px-2.5 rounded-lg text-[9px] font-extrabold uppercase tracking-wide transition-all cursor-pointer text-center ${
                 !currentUser.isDemo ? 'bg-[#00c087] text-[#0b0e11]' : 'text-zinc-500 hover:text-white'
               }`}
             >
-              <span className="hidden sm:inline">REAL LIVE</span>
-              <span className="inline sm:hidden">LIVE</span>
+              LIVE
             </button>
           </div>
 
-          {/* Current balance indicator */}
-          <div className="bg-[#2b2f36]/40 rounded-xl px-1.5 sm:px-2.5 py-0.5 sm:py-1 border border-zinc-800 flex items-center gap-1 sm:gap-2">
-            <Wallet className="h-3.5 w-3.5 text-[#f0b90b] hidden sm:block" />
-            <div className="flex flex-col">
+          {/* Dedicated active balance container */}
+          <div className="bg-[#2b2f36]/40 rounded-xl px-2 py-0.5 border border-zinc-800 flex items-center gap-1.5">
+            <Wallet className="h-3.5 w-3.5 text-[#f0b90b] hidden xs:block" />
+            <div className="flex flex-col min-w-[70px] xs:min-w-[85px]">
               <span className="text-[7px] sm:text-[8px] text-[#8E9AAB] tracking-widest uppercase font-extrabold leading-none">
-                {currentUser.isDemo ? 'DEMO' : 'LIVE'}
+                {currentUser.isDemo ? 'DEMO' : 'LIVE'} WALLET
               </span>
               <span className="text-[#00c087] font-mono font-bold text-[10px] sm:text-xs mt-0.5">
                 ${(currentUser.isDemo ? currentUser.demoBalance : currentUser.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -606,48 +686,51 @@ export default function App() {
             </div>
           </div>
 
-          {/* Deposit Fund Gateway trigger */}
+          {/* Secure wire/escrow Deposit action */}
           <button
             id="header-deposit-btn"
             onClick={() => setIsGatewayOpen(true)}
-            className="bg-[#00c087] hover:bg-[#00d696] text-[#0b0e11] font-black p-1.5 sm:px-3.5 sm:py-1.5 rounded-xl text-[10px] flex items-center gap-1 tracking-wider shadow cursor-pointer transition-all uppercase"
+            className="bg-[#00c087] hover:bg-[#00d696] text-[#0b0e11] font-black p-1.5 px-3 sm:px-3.5 rounded-xl text-[10px] flex items-center gap-1 tracking-wider shadow cursor-pointer transition-all uppercase shrink-0"
           >
             <Plus className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">DEPOSIT</span>
+            <span className="inline">DEPOSIT</span>
           </button>
 
-          {/* Administrative Portal Link */}
-          <button
-            id="header-admin-portal-toggle"
-            onClick={() => setIsAdminOpen(true)}
-            className="bg-zinc-800 hover:bg-[#f0b90b] hover:text-[#0b0e11] text-[#f0b95b] font-bold p-1.5 sm:px-3.5 sm:py-1.5 rounded-xl text-[10px] flex items-center gap-1 tracking-wider cursor-pointer transition-all uppercase"
-          >
-            <Shield className="h-3.5 w-3.5 text-[#f0b90b]" />
-            <span className="hidden sm:inline">ADMIN</span>
-          </button>
+          {/* Desktop-only standalone action links (md and up) */}
+          <div className="hidden md:flex items-center gap-2">
+            {/* Administrative Portal Link */}
+            <button
+              id="header-admin-portal-toggle"
+              onClick={() => setIsAdminOpen(true)}
+              className="bg-zinc-800 hover:bg-[#f0b90b] hover:text-[#0b0e11] text-[#f0b95b] font-bold p-1.5 sm:px-3.5 sm:py-1.5 rounded-xl text-[10px] flex items-center gap-1 tracking-wider cursor-pointer transition-all uppercase"
+            >
+              <Shield className="h-3.5 w-3.5 text-[#f0b90b]" />
+              <span className="hidden sm:inline">ADMIN</span>
+            </button>
 
-          {/* SC (Screenshot) Button */}
-          <button
-            id="header-screenshot-sc-btn"
-            onClick={triggerScreenshotFlash}
-            className="bg-zinc-800 hover:bg-[#0070f3] hover:text-white text-zinc-300 font-bold p-1.5 sm:px-3 sm:py-1.5 rounded-xl text-[10px] flex items-center gap-1.5 tracking-wider cursor-pointer transition-all uppercase"
-            title="Capture Screenshot (SC)"
-          >
-            <Camera className="h-3.5 w-3.5 text-[#0070f3] group-hover:text-white transition-colors" />
-            <span className="inline">SC</span>
-          </button>
+            {/* SC (Screenshot) Button */}
+            <button
+              id="header-screenshot-sc-btn"
+              onClick={triggerScreenshotFlash}
+              className="bg-zinc-800 hover:bg-[#0070f3] hover:text-white text-zinc-300 font-bold p-1.5 sm:px-3 sm:py-1.5 rounded-xl text-[10px] flex items-center gap-1.5 tracking-wider cursor-pointer transition-all uppercase"
+              title="Capture Screenshot (SC)"
+            >
+              <Camera className="h-3.5 w-3.5 text-[#0070f3] group-hover:text-white transition-colors" />
+              <span className="inline">SC</span>
+            </button>
 
-          {/* Log out option */}
-          <button
-            id="logout-session"
-            onClick={() => {
-              localStorage.removeItem('trading_session_user');
-              setCurrentUser(null);
-            }}
-            className="text-zinc-500 hover:text-white p-1 hover:p-1.5 hover:bg-zinc-805 rounded-lg cursor-pointer transition-all"
-          >
-            <LogOut className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-          </button>
+            {/* Log out option */}
+            <button
+              id="logout-session"
+              onClick={() => {
+                localStorage.removeItem('trading_session_user');
+                setCurrentUser(null);
+              }}
+              className="text-zinc-500 hover:text-white p-1 hover:p-1.5 hover:bg-zinc-805 rounded-lg cursor-pointer transition-all"
+            >
+              <LogOut className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            </button>
+          </div>
         </div>
       </header>
 

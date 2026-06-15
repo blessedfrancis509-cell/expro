@@ -48,7 +48,7 @@ export default function PerformanceAnalytics({ transactions, positions, userBala
   const chartWidth = 500;
   const maxEquity = Math.max(...equityPoints, startingEquity) * 1.02;
   const minEquity = Math.min(...equityPoints, startingEquity) * 0.98;
-  const deltaEquity = maxEquity - minEquity;
+  const deltaEquity = maxEquity - minEquity || 100;
 
   const getSvgCoordinates = (): string => {
     return equityPoints

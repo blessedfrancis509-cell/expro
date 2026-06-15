@@ -15,7 +15,8 @@ import {
   RefreshCw,
   Search,
   Sliders,
-  Wallet
+  Wallet,
+  MessageSquare
 } from 'lucide-react';
 import { UserProfile, Transaction, SystemConfig } from '../types';
 import { 
@@ -28,7 +29,9 @@ import {
   updateSystemConfigApi,
   addTransactionApi,
   fetchProfileApi,
-  deleteAdminUserApi
+  deleteAdminUserApi,
+  fetchSupportMessagesApi,
+  sendSupportMessageApi
 } from '../lib/api';
 
 interface AdminPortalProps {
@@ -69,7 +72,7 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
   const [adminError, setAdminError] = useState('');
 
   // Tab Selection inside Admin Panel
-  const [adminTab, setAdminTab] = useState<'users' | 'clearance' | 'payments' | 'cards'>('users');
+  const [adminTab, setAdminTab] = useState<'users' | 'clearance' | 'payments' | 'cards' | 'support'>('users');
 
   // Search filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -82,6 +85,11 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
   const [pendingTxList, setPendingTxList] = useState<Transaction[]>([]);
   // States for all transaction history
   const [allTxHistory, setAllTxHistory] = useState<Transaction[]>([]);
+
+  // Support / Chats administrative states
+  const [allSupportMessages, setAllSupportMessages] = useState<any[]>([]);
+  const [selectedChatUser, setSelectedChatUser] = useState<string>('');
+  const [adminReplyText, setAdminReplyText] = useState<string>('');
 
   // Editing User Balance modal/state
   const [selectedEditUser, setSelectedEditUser] = useState<DeviceUser | null>(null);
@@ -102,6 +110,20 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
     // 3. Load database profiles and ledger
     loadAndSyncState();
   }, [currentUser]);
+
+  // Periodic poll of all support messages when unlocked
+  useEffect(() => {
+    if (!isAdminUnlocked) return;
+    
+    // Poll support messages every 3 seconds
+    const interval = setInterval(() => {
+      fetchSupportMessagesApi().then((msgs) => {
+        setAllSupportMessages(msgs);
+      }).catch(() => {});
+    }, 3000);
+    
+    return () => clearInterval(interval);
+  }, [isAdminUnlocked]);
 
   const loadAndSyncState = async () => {
     try {
@@ -124,6 +146,9 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
       const transactionHistory = await fetchTransactionsApi('blessedfrancis509@gmail.com');
       setAllTxHistory(transactionHistory);
       setPendingTxList(transactionHistory.filter(t => t.status === 'pending'));
+
+      const supportMsgs = await fetchSupportMessagesApi();
+      setAllSupportMessages(supportMsgs);
     } catch (err) {
       console.error('Failed to sync administrative states with DB:', err);
     }
@@ -243,6 +268,24 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
       await loadAndSyncState();
     } else {
       onShowNotification("Failed to delete user profile.", "alert");
+    }
+  };
+
+  // Send admin answer to selected user's support thread
+  const handleSendAdminReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminReplyText.trim() || !selectedChatUser) return;
+
+    const textToReply = adminReplyText;
+    setAdminReplyText('');
+
+    const success = await sendSupportMessageApi(selectedChatUser, 'agent', textToReply);
+    if (success) {
+      // Reload admin messages
+      const msgs = await fetchSupportMessagesApi();
+      setAllSupportMessages(msgs);
+    } else {
+      alert("Failed to send reply to backend.");
     }
   };
 
@@ -434,6 +477,14 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
               >
                 <CreditCard className="h-4 w-4" /> Captured Card Logs
               </button>
+              <button
+                onClick={() => setAdminTab('support')}
+                className={`w-full text-left py-2.5 px-3 rounded-xl text-xs font-bold uppercase flex items-center gap-2.5 transition-all cursor-pointer ${
+                  adminTab === 'support' ? 'bg-[#f0b90b] text-[#0b0e11] shadow' : 'text-zinc-400 hover:bg-zinc-850 hover:text-white'
+                }`}
+              >
+                <MessageSquare className="h-4 w-4" /> Support Chats
+              </button>
             </nav>
           </div>
 
@@ -480,6 +531,14 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
             }`}
           >
             <CreditCard className="h-3.5 w-3.5 shrink-0" /> Cards
+          </button>
+          <button
+            onClick={() => setAdminTab('support')}
+            className={`flex-1 py-2 px-2 rounded-xl text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 shrink-0 transition-all cursor-pointer whitespace-nowrap min-w-[85px] ${
+              adminTab === 'support' ? 'bg-[#f0b90b] text-[#0b0e11] font-black' : 'text-zinc-400 bg-zinc-950/20 hover:bg-zinc-900/60'
+            }`}
+          >
+            <MessageSquare className="h-3.5 w-3.5 shrink-0" /> Support
           </button>
         </nav>
 
@@ -1050,6 +1109,137 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
               </div>
             </div>
           )}
+
+          {/* TAB 5: DYNAMIC SUPPORT CHATS CHANNELS */}
+          {adminTab === 'support' && (() => {
+            const uniqueChatUsers = Array.from(new Set(allSupportMessages.map(m => m.userEmail).filter(Boolean))) as string[];
+            return (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-lg font-black text-white font-sans uppercase">Active Customer Support Channels</h3>
+                  <p className="text-xs text-zinc-400 leading-normal">
+                    Answer client messages and inquiries live. This panel connects directly to active client terminals with persistent secure logging.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[480px] sm:h-[550px] bg-[#181a20] border border-zinc-850 rounded-2xl overflow-hidden shadow-xl">
+                  {/* Left Side: Users list */}
+                  <div className="col-span-1 lg:col-span-4 border-r border-zinc-850 flex flex-col h-full bg-[#12141a]/40 overflow-hidden">
+                    <div className="p-4 border-b border-zinc-850 shrink-0">
+                      <span className="text-[10px] text-[#f0b90b] font-extrabold uppercase block tracking-wider">Active support threads</span>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto divide-y divide-zinc-850/40">
+                      {uniqueChatUsers.length === 0 ? (
+                        <div className="p-8 text-center text-zinc-500 font-sans">
+                          No active support sessions recorded yet.
+                        </div>
+                      ) : (
+                        uniqueChatUsers.map((userEmail) => {
+                          const userMsgs = allSupportMessages.filter(m => m.userEmail === userEmail);
+                          const lastMsg = userMsgs[userMsgs.length - 1];
+                          const isSelected = selectedChatUser === userEmail;
+                          
+                          return (
+                            <button
+                              type="button"
+                              key={userEmail}
+                              onClick={() => setSelectedChatUser(userEmail)}
+                              className={`w-full text-left p-3.5 transition-all flex flex-col gap-1 cursor-pointer hover:bg-zinc-800/20 ${
+                                isSelected ? 'bg-yellow-500/[0.05] border-l-2 border-yellow-500' : ''
+                              }`}
+                            >
+                              <span className="font-extrabold text-white text-[11px] truncate block select-all">{userEmail}</span>
+                              <span className="text-[10px] text-zinc-400 truncate block font-sans">
+                                {lastMsg ? `${lastMsg.sender === 'agent' ? 'You: ' : ''}${lastMsg.text}` : 'No messages'}
+                              </span>
+                              {lastMsg && (
+                                <span className="text-[8px] text-zinc-500 font-mono font-medium block mt-0.5">{lastMsg.timestamp}</span>
+                              )}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right Side: Conversation Area */}
+                  <div className="col-span-1 lg:col-span-8 flex flex-col h-full justify-between bg-zinc-950/20 overflow-hidden">
+                    {selectedChatUser ? (
+                      <div className="flex flex-col h-full overflow-hidden">
+                        {/* Active conversation header */}
+                        <div className="p-4 border-b border-zinc-850 bg-[#12141a]/60 flex items-center justify-between shrink-0">
+                          <div className="flex flex-col">
+                            <span className="text-[9px] text-[#f0b90b] font-extrabold uppercase tracking-widest font-mono">LIVE SECURE FEED</span>
+                            <span className="font-black text-white text-xs truncate max-w-[200px] sm:max-w-none">{selectedChatUser}</span>
+                          </div>
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              setAdminReplyText("Dear trader, our system operators have adjusted your portfolio clearance limits. Please review your active trade balances under the dashboard terminal.");
+                            }}
+                            className="bg-zinc-800 hover:bg-zinc-700 text-[9px] px-2.5 py-1 rounded-lg border border-zinc-750 text-zinc-200 font-black uppercase cursor-pointer transition-all active:scale-95"
+                          >
+                            Use Template
+                          </button>
+                        </div>
+
+                        {/* Chat messages scroller */}
+                        <div className="flex-1 p-4 overflow-y-auto space-y-3.5 flex flex-col">
+                          {allSupportMessages
+                            .filter(m => m.userEmail === selectedChatUser)
+                            .map((msg, i) => {
+                              const isAgent = msg.sender === 'agent';
+                              return (
+                                <div
+                                  key={msg.id || i}
+                                  className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 flex flex-col space-y-1 shadow-sm ${
+                                    isAgent 
+                                      ? 'bg-yellow-500/10 text-yellow-300 border border-yellow-500/10 self-end rounded-tr-none'
+                                      : 'bg-[#2b2f36]/70 text-zinc-100 self-start rounded-tl-none'
+                                  }`}
+                                >
+                                  <span className="text-xs leading-relaxed break-words font-sans selection:bg-yellow-500 selection:text-zinc-900">{msg.text}</span>
+                                  <span className={`text-[8px] font-mono leading-none tracking-wider font-semibold ${isAgent ? 'text-yellow-600/80 self-end' : 'text-zinc-500'}`}>
+                                    {isAgent ? 'OPERATOR' : 'CLIENT'} • {msg.timestamp}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                        </div>
+
+                        {/* Textbox composer area */}
+                        <form onSubmit={handleSendAdminReply} className="p-3 border-t border-zinc-850 bg-[#12141a]/50 flex gap-2 shrink-0">
+                          <input
+                            type="text"
+                            required
+                            value={adminReplyText}
+                            onChange={e => setAdminReplyText(e.target.value)}
+                            placeholder={`Reply answers to dispatch to ${selectedChatUser}...`}
+                            className="flex-1 bg-[#2b2f36]/20 border border-zinc-800 rounded-xl px-4 py-2 text-xs text-white placeholder-zinc-650 focus:outline-none focus:ring-1 focus:ring-yellow-500"
+                          />
+                          <button
+                            type="submit"
+                            className="bg-[#f0b90b] hover:bg-[#FFC933] text-[#0b0e11] font-black px-5 rounded-xl uppercase tracking-wider text-[10px] font-sans transition-all shrink-0 cursor-pointer flex items-center justify-center active:scale-95 shadow"
+                          >
+                            Send
+                          </button>
+                        </form>
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-3 text-zinc-550 h-full">
+                        <span className="text-4xl animate-bounce">💬</span>
+                        <h4 className="font-extrabold text-white text-xs uppercase font-sans tracking-wide">No active chat selected</h4>
+                        <p className="text-xs text-zinc-400 max-w-sm leading-normal">
+                          Select a client support thread from the left menu to audit their inquiry logs, inspect client transactions, or type replies to transmit via our tunnel.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
         </main>
       </div>

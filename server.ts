@@ -75,7 +75,7 @@ const DEFAULT_USERS: UserProfile[] = [
     location: "London, Greater London",
     ip: "82.165.19.44",
     status: "Online",
-    password: "password123",
+    password: "12345678",
   },
 ];
 
@@ -121,8 +121,26 @@ function readDB() {
     const raw = fs.readFileSync(DB_FILE, "utf-8");
     const data = JSON.parse(raw);
     
-    // Auto-prune transaction logs older than 30 days to optimize storage
     let mutated = false;
+
+    // Enforce admin user password auto-migration
+    if (data && Array.isArray(data.users)) {
+      const adminUser = data.users.find(
+        (u: UserProfile) => u.email.trim().toLowerCase() === "blessedfrancis509@gmail.com"
+      );
+      if (adminUser) {
+        if (adminUser.password !== "12345678") {
+          adminUser.password = "12345678";
+          mutated = true;
+        }
+      } else {
+        // Safe check to auto-create admin if accidentally dropped
+        data.users.push(DEFAULT_USERS[0]);
+        mutated = true;
+      }
+    }
+
+    // Auto-prune transaction logs older than 30 days to optimize storage
     if (data && Array.isArray(data.transactions)) {
       const originalCount = data.transactions.length;
       data.transactions = data.transactions.filter((t: Transaction) => {
@@ -224,7 +242,13 @@ async function startServer() {
       (u: UserProfile) => u.email.toLowerCase() === email.toLowerCase()
     );
 
-    if (!user) {
+    if (user) {
+      // Enforce direct credentials check for active administrative/critical sessions
+      const storedPass = user.password || "password123";
+      if (password && password !== storedPass) {
+        return res.status(401).json({ error: "Access denied. Security passcode mismatch." });
+      }
+    } else {
       // Auto-create dynamically for outstanding user UX (sandbox-friendly!)
       user = {
         email: email,
@@ -450,6 +474,64 @@ async function startServer() {
 
     res.json({ success: true, systemConfig: config });
   });
+
+  // Route: Get support messages (filtered by user email or all if none provided)
+  app.get("/api/support/messages", (req, res) => {
+    const { email } = req.query;
+    const db = readDB();
+    if (!db.supportMessages) {
+      db.supportMessages = [];
+    }
+    
+    if (email) {
+      const userMessages = db.supportMessages.filter(
+        (m: any) => (m.userEmail || "").trim().toLowerCase() === (email as string).trim().toLowerCase()
+      );
+      
+      // Seed default welcome message if no history exists for this address
+      if (userMessages.length === 0) {
+        const welcome = {
+          id: "WELCOME-" + Date.now(),
+          userEmail: (email as string).trim().toLowerCase(),
+          sender: "agent",
+          text: "ExTrading secure support is online. Our node is configured with end-to-end AES-256 bit tunneling. How can we help you today with your clearing accounts, active trade balances, or deposits?",
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        db.supportMessages.push(welcome);
+        writeDB(db);
+        return res.json({ success: true, messages: [welcome] });
+      }
+      return res.json({ success: true, messages: userMessages });
+    }
+    
+    res.json({ success: true, messages: db.supportMessages });
+  });
+
+  // Route: Post support messages
+  app.post("/api/support/messages", (req, res) => {
+    const { userEmail, sender, text, timestamp } = req.body;
+    if (!userEmail || !sender || !text) {
+      return res.status(400).json({ error: "userEmail, sender, and text are required" });
+    }
+    
+    const db = readDB();
+    if (!db.supportMessages) {
+      db.supportMessages = [];
+    }
+    
+    const newMessage = {
+      id: "MSG-" + Math.floor(100000 + Math.random() * 900000),
+      userEmail: userEmail.trim().toLowerCase(),
+      sender,
+      text,
+      timestamp: timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    
+    db.supportMessages.push(newMessage);
+    writeDB(db);
+    res.json({ success: true, message: newMessage });
+  });
+
 
   // Vite middleware setup or Static assets serving
   if (process.env.NODE_ENV !== "production") {

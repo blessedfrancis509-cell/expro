@@ -53,7 +53,7 @@ export default function AuthGate({ onLoginSuccess }: AuthGateProps) {
     try {
       let user: UserProfile;
       if (isLogin) {
-        user = await loginApi(email);
+        user = await loginApi(email, password);
       } else {
         user = await signUpApi({
           email,

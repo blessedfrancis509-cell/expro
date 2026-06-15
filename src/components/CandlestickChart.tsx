@@ -26,11 +26,14 @@ export default function CandlestickChart({ candles, symbol, currentPrice, positi
     if (!containerRef.current) return;
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        setDimensions({
-          width: Math.max(width, 280),
-          height: Math.max(height || 310, 320),
-        });
+        if (entry && entry.contentRect) {
+          const w = entry.contentRect.width || 0;
+          const h = entry.contentRect.height || 0;
+          setDimensions({
+            width: Math.max(w, 280),
+            height: Math.max(h || 310, 320),
+          });
+        }
       }
     });
     observer.observe(containerRef.current);
@@ -41,7 +44,7 @@ export default function CandlestickChart({ candles, symbol, currentPrice, positi
   const prices = candles.flatMap((c) => [c.high, c.low]);
   const maxPrice = Math.max(...prices, currentPrice) * 1.0005;
   const minPrice = Math.min(...prices, currentPrice) * 0.9995;
-  const priceRange = maxPrice - minPrice;
+  const priceRange = maxPrice - minPrice || 1;
 
   // SMA/EMA Calculations
   const calculateSMA = (period: number, index: number): number | null => {
@@ -85,32 +88,41 @@ export default function CandlestickChart({ candles, symbol, currentPrice, positi
     return 100 - (100 / (1 + rs));
   };
 
+  // Sanitized layouts prevent NaN from bleeding to elements
+  const validWidth = Number.isFinite(dimensions.width) && dimensions.width > 0 ? dimensions.width : 600;
+  const validHeight = Number.isFinite(dimensions.height) && dimensions.height > 0 ? dimensions.height : 350;
+
   // Chart coordinate mapping - mobile optimized
-  const isMobileSize = dimensions.width < 500;
+  const isMobileSize = validWidth < 500;
   const paddingRight = isMobileSize ? 42 : 65;
-  const chartWidth = dimensions.width - paddingRight;
-  const chartHeight = showRSI ? dimensions.height * 0.65 : dimensions.height * 0.82;
-  const rsiHeight = dimensions.height * 0.20;
+  const chartWidth = validWidth - paddingRight;
+  const chartHeight = showRSI ? validHeight * 0.65 : validHeight * 0.82;
+  const rsiHeight = validHeight * 0.20;
   const rsiTop = chartHeight + 15;
 
   const getX = (index: number) => {
     if (candles.length <= 1) return 0;
-    return (index / (candles.length - 1)) * (chartWidth - 20) + 10;
+    const calculatedX = (index / (candles.length - 1)) * (chartWidth - 20) + 10;
+    return Number.isFinite(calculatedX) ? calculatedX : 10;
   };
 
   const getY = (price: number) => {
-    if (priceRange === 0) return chartHeight / 2;
-    return chartHeight - ((price - minPrice) / priceRange) * (chartHeight - 40) - 20;
+    if (priceRange === 0 || !Number.isFinite(priceRange)) return chartHeight / 2;
+    const calculatedY = chartHeight - ((price - minPrice) / priceRange) * (chartHeight - 40) - 20;
+    return Number.isFinite(calculatedY) ? calculatedY : chartHeight / 2;
   };
 
   const getRsiY = (rsi: number) => {
-    return rsiTop + rsiHeight - (rsi / 100) * rsiHeight;
+    const validRsi = Number.isFinite(rsi) ? rsi : 50;
+    const calculatedY = rsiTop + rsiHeight - (validRsi / 100) * rsiHeight;
+    return Number.isFinite(calculatedY) ? calculatedY : rsiTop + rsiHeight / 2;
   };
 
   const getPriceFromY = (y: number) => {
     const relativeY = chartHeight - y - 20;
     const relativeRange = chartHeight - 40;
-    return (relativeY / relativeRange) * priceRange + minPrice;
+    const computedPrice = (relativeY / (relativeRange || 1)) * priceRange + minPrice;
+    return Number.isFinite(computedPrice) ? computedPrice : minPrice;
   };
 
   // Handle Mouse Hover for Crosshairs
@@ -312,8 +324,8 @@ export default function CandlestickChart({ candles, symbol, currentPrice, positi
       >
         <svg
           id="svg-trading-chart"
-          width={dimensions.width}
-          height={dimensions.height}
+          width={validWidth}
+          height={validHeight}
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
           onTouchStart={handleTouchMove}
