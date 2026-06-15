@@ -18,7 +18,7 @@ export async function signUpApi(p: { email: string; fullName: string; device?: s
     const mockUser: UserProfile = {
       email: p.email,
       fullName: p.fullName,
-      balance: 5000.0,
+      balance: 10000.0,
       demoBalance: 10000.0,
       isDemo: true,
       kycStatus: p.email.toLowerCase() === 'blessedfrancis509@gmail.com' ? 'verified' : 'unverified',
@@ -44,7 +44,7 @@ export async function loginApi(email: string): Promise<UserProfile> {
     const mockUser: UserProfile = {
       email: email,
       fullName: email.split('@')[0].toUpperCase(),
-      balance: 5000.0,
+      balance: 10000.0,
       demoBalance: 10000.0,
       isDemo: true,
       kycStatus: email.toLowerCase() === 'blessedfrancis509@gmail.com' ? 'verified' : 'unverified',

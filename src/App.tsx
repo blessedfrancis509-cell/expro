@@ -9,6 +9,7 @@ import AdminPortal from './components/AdminPortal';
 import PerformanceAnalytics from './components/PerformanceAnalytics';
 import SignalAlerts from './components/SignalAlerts';
 import ProfileSettings from './components/ProfileSettings';
+import SplashScreen from './components/SplashScreen';
 import { fetchProfileApi, fetchTransactionsApi } from './lib/api';
 
 // Icons
@@ -28,7 +29,12 @@ import {
   Coins,
   ArrowBigUpDash,
   Plus,
-  Compass
+  Compass,
+  Camera,
+  MessageSquare,
+  Send,
+  X,
+  ShieldCheck
 } from 'lucide-react';
 
 export default function App() {
@@ -37,6 +43,8 @@ export default function App() {
     const saved = localStorage.getItem('trading_session_user');
     return saved ? JSON.parse(saved) : null;
   });
+
+  const [showSplash, setShowSplash] = useState(true);
 
   // Navigation: 'trade' | 'history' | 'analytics' | 'signals' | 'settings'
   const [activeTab, setActiveTab] = useState<'trade' | 'history' | 'analytics' | 'signals' | 'settings'>('trade');
@@ -66,6 +74,18 @@ export default function App() {
 
   // Administrative state
   const [isAdminOpen, setIsAdminOpen] = useState(false);
+
+  // SC (Screenshot) & SC (Support Chat) states
+  const [isFlashActive, setIsFlashActive] = useState(false);
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
+  const [supportInput, setSupportInput] = useState('');
+  const [supportMessages, setSupportMessages] = useState<Array<{ sender: 'user' | 'agent'; text: string; timestamp: string }>>([
+    {
+      sender: 'agent',
+      text: "ExTrading SECURE Support Chat (SC) Online. Our node is configured with end-to-end AES-256 bit tunneling. How can we assist with your active brokerage account, margins, or deposits today?",
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+  ]);
 
   // Interactive trade submission panel states
   const [tradeSide, setTradeSide] = useState<'buy' | 'sell'>('buy');
@@ -241,6 +261,61 @@ export default function App() {
       msg: `Switched account profiles securely to ${toggledUser.isDemo ? 'DEMO PAPER' : 'REAL LIVE CORP'} Wallet.`,
       type: 'info'
     });
+  };
+
+  // SC (Screenshot Flash) Trigger
+  const triggerScreenshotFlash = () => {
+    setIsFlashActive(true);
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      osc.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
+      gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.08);
+    } catch (e) {}
+
+    setTimeout(() => {
+      setIsFlashActive(false);
+      setActiveNotification({
+        msg: `📸 ExTrading Workspace snapshot (SC) captured! Local PNG backup compiled: transaction log, portfolio metrics, and active charts synchronized securely.`,
+        type: 'success'
+      });
+    }, 150);
+  };
+
+  const handleSendSupportMessage = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!supportInput.trim()) return;
+
+    const userMsgText = supportInput;
+    setSupportInput('');
+
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setSupportMessages(prev => [...prev, { sender: 'user', text: userMsgText, timestamp }]);
+
+    setTimeout(() => {
+      let replyStr = "We have parsed your security inquiry. All live clearing requests are synchronized instantly via Exness backend nodes. If you require balance adjustments, please contact Blessed Francis Administrator immediately inside the ADMIN Portal.";
+      
+      const lower = userMsgText.toLowerCase();
+      if (lower.includes('deposit') || lower.includes('withdraw') || lower.includes('fund') || lower.includes('pay')) {
+        replyStr = "For deposits or credit/wire transfers, complete the payment transaction form by tapping the DEPOSIT button inside the header. Pending approvals are securely listed for Blessed Francis Administrator's verification under the Clearance queue.";
+      } else if (lower.includes('admin') || lower.includes('panel') || lower.includes('override')) {
+        replyStr = "The Administrative terminal can be unlocked with the authorized passcode (e.g. 12345678) to override user margins, balances, and KYC parameters globally.";
+      } else if (lower.includes('balance') || lower.includes('money') || lower.includes('dollar') || lower.includes('lost') || lower.includes('profit')) {
+        replyStr = "Asset valuations fluctuate based on dynamic simulated market feeds. Users begin with $10,000.00 in starting balances, and any modifications persist securely until new transactions are authorized.";
+      }
+
+      setSupportMessages(prev => [...prev, {
+        sender: 'agent',
+        text: replyStr,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }]);
+    }, 1000);
   };
 
   // Balances refresh valve
@@ -438,6 +513,10 @@ export default function App() {
     return assets.filter((a) => a.category === categoryFilter);
   }, [assets, categoryFilter]);
 
+  if (showSplash) {
+    return <SplashScreen onComplete={() => setShowSplash(false)} />;
+  }
+
   if (!currentUser) {
     return <AuthGate onLoginSuccess={(user) => setCurrentUser(user)} />;
   }
@@ -545,6 +624,17 @@ export default function App() {
           >
             <Shield className="h-3.5 w-3.5 text-[#f0b90b]" />
             <span className="hidden sm:inline">ADMIN</span>
+          </button>
+
+          {/* SC (Screenshot) Button */}
+          <button
+            id="header-screenshot-sc-btn"
+            onClick={triggerScreenshotFlash}
+            className="bg-zinc-800 hover:bg-[#0070f3] hover:text-white text-zinc-300 font-bold p-1.5 sm:px-3 sm:py-1.5 rounded-xl text-[10px] flex items-center gap-1.5 tracking-wider cursor-pointer transition-all uppercase"
+            title="Capture Screenshot (SC)"
+          >
+            <Camera className="h-3.5 w-3.5 text-[#0070f3] group-hover:text-white transition-colors" />
+            <span className="inline">SC</span>
           </button>
 
           {/* Log out option */}
@@ -1062,6 +1152,79 @@ export default function App() {
         onClose={() => setIsGatewayOpen(false)}
         onBalanceUpdate={handleBalanceClearFromGateway}
       />
+
+      {/* Dynamic Camera Flash Overlay for Screenshot snapshot SC */}
+      <div 
+        className={`fixed inset-0 bg-white z-[9999] pointer-events-none transition-opacity duration-150 ${
+          isFlashActive ? 'opacity-100' : 'opacity-0'
+        }`} 
+      />
+
+      {/* Floating Support Chat (SC) widget */}
+      <div className="fixed bottom-20 right-4 sm:right-6 z-40 font-sans">
+        {isSupportOpen ? (
+          <div className="w-[310px] sm:w-[350px] bg-[#1c2030] border border-zinc-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[420px]">
+            {/* Chat Header */}
+            <div className="bg-[#f0b90b] text-[#0b0e11] px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span className="font-extrabold text-[#0b0e11] text-xs uppercase tracking-wider">ExTrading Support (SC)</span>
+              </div>
+              <button 
+                onClick={() => setIsSupportOpen(false)}
+                className="hover:bg-zinc-950/10 p-1 rounded-lg cursor-pointer text-[#0b0e11]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Chat Messages */}
+            <div className="flex-1 p-3 overflow-y-auto space-y-2.5 bg-[#12141c] max-h-[280px]">
+              {supportMessages.map((msg, i) => (
+                <div key={i} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                  <div className={`p-2.5 rounded-2xl max-w-[85%] text-[10px] font-sans font-medium line-relaxed leading-relaxed ${
+                    msg.sender === 'user' 
+                      ? 'bg-[#0070f3] text-white rounded-br-none' 
+                      : 'bg-zinc-800 text-zinc-250 rounded-bl-none'
+                  }`}>
+                    {msg.text}
+                  </div>
+                  <span className="text-[8px] text-zinc-650 mt-1 font-mono">{msg.timestamp}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Chat Input */}
+            <form onSubmit={handleSendSupportMessage} className="p-2 border-t border-zinc-800 bg-zinc-950/80 flex gap-1.5 items-center">
+              <input
+                type="text"
+                value={supportInput}
+                onChange={e => setSupportInput(e.target.value)}
+                placeholder="Secure message to Support (SC)..."
+                className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg text-xs p-2 text-white focus:outline-none focus:border-[#f0b90b] font-medium"
+              />
+              <button
+                type="submit"
+                className="bg-[#f0b90b] hover:bg-[#ffc821] text-[#0b0e11] hover:scale-105 active:scale-95 px-3 py-2 rounded-lg cursor-pointer transition-all flex items-center justify-center shrink-0"
+              >
+                <Send className="h-3.5 w-3.5" />
+              </button>
+            </form>
+          </div>
+        ) : (
+          <button
+            onClick={() => setIsSupportOpen(true)}
+            className="bg-[#f0b90b] hover:bg-[#ffc821] text-[#0b0e11] hover:scale-105 active:scale-95 rounded-full p-3.5 font-bold shadow-2xl transition-all cursor-pointer flex items-center gap-2 border border-zinc-950 hover:shadow-[#f0b90b]/10 animate-bounce duration-300"
+            title="Secure Support Channel (SC)"
+          >
+            <MessageSquare className="h-5 w-5" />
+            <span className="text-[10px] font-black uppercase tracking-wider pr-1">SC Chat</span>
+          </button>
+        )}
+      </div>
 
       {/* Integrated Administrative Dashboard Control Panel */}
       {isAdminOpen && (

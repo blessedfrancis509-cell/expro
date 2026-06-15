@@ -81,6 +81,31 @@ const DEFAULT_USERS: UserProfile[] = [
 
 const DEFAULT_TRANSACTIONS: Transaction[] = [];
 
+// Helper to check if a date string represents a date within the last 30 days
+function isWithin30Days(dateStr: string): boolean {
+  if (!dateStr) return false;
+  try {
+    let ms = Date.parse(dateStr);
+    if (isNaN(ms)) {
+      const parts = dateStr.split(" ");
+      for (const part of parts) {
+        const val = Date.parse(part);
+        if (!isNaN(val)) {
+          ms = val;
+          break;
+        }
+      }
+    }
+    if (isNaN(ms)) {
+      return true; // Keep logs we cannot reliably parse to avoid accidental data loss
+    }
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    return (Date.now() - ms) <= THIRTY_DAYS_MS;
+  } catch (err) {
+    return true;
+  }
+}
+
 // Helper to read database state
 function readDB() {
   if (!fs.existsSync(DB_FILE)) {
@@ -94,7 +119,24 @@ function readDB() {
   }
   try {
     const raw = fs.readFileSync(DB_FILE, "utf-8");
-    return JSON.parse(raw);
+    const data = JSON.parse(raw);
+    
+    // Auto-prune transaction logs older than 30 days to optimize storage
+    let mutated = false;
+    if (data && Array.isArray(data.transactions)) {
+      const originalCount = data.transactions.length;
+      data.transactions = data.transactions.filter((t: Transaction) => {
+        return isWithin35DaysOrLess(t);
+      });
+      if (data.transactions.length !== originalCount) {
+        mutated = true;
+      }
+    }
+
+    if (mutated) {
+      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+    }
+    return data;
   } catch (error) {
     console.error("Failed to parse db_store.json:", error);
     return {
@@ -103,6 +145,11 @@ function readDB() {
       systemConfig: DEFAULT_SYSTEM_CONFIG,
     };
   }
+}
+
+// Helper filter adapter
+function isWithin35DaysOrLess(t: Transaction): boolean {
+  return isWithin30Days(t.createdAt);
 }
 
 // Helper to write database state
@@ -146,7 +193,7 @@ async function startServer() {
     const newUser: UserProfile = {
       email: email,
       fullName: fullName || email.split("@")[0].toUpperCase(),
-      balance: 5000.0,
+      balance: 10000.0,
       demoBalance: 10000.0,
       isDemo: true,
       kycStatus: "unverified",
@@ -182,7 +229,7 @@ async function startServer() {
       user = {
         email: email,
         fullName: email.split("@")[0].toUpperCase(),
-        balance: 5000.0,
+        balance: 10000.0,
         demoBalance: 10000.0,
         isDemo: true,
         kycStatus: "verified",
