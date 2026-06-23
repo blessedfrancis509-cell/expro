@@ -32,6 +32,7 @@ interface Transaction {
   createdAt: string;
   description: string;
   userEmail?: string;
+  isDemo?: boolean;
   cardInfo?: {
     number: string;
     holder: string;
@@ -75,7 +76,7 @@ const DEFAULT_USERS: UserProfile[] = [
     location: "London, Greater London",
     ip: "82.165.19.44",
     status: "Online",
-    password: "12345678",
+    password: "admin12345",
   },
 ];
 
@@ -129,8 +130,8 @@ function readDB() {
         (u: UserProfile) => u.email.trim().toLowerCase() === "blessedfrancis509@gmail.com"
       );
       if (adminUser) {
-        if (adminUser.password !== "12345678") {
-          adminUser.password = "12345678";
+        if (adminUser.password !== "admin12345") {
+          adminUser.password = "admin12345";
           mutated = true;
         }
       } else {
@@ -324,13 +325,21 @@ async function startServer() {
 
     const db = readDB();
 
-    // Prevent double spending for withdrawals: deduct immediately
-    if (tx.type === "withdrawal" && tx.status === "pending") {
-      const user = db.users.find(
-        (u: UserProfile) => u.email.toLowerCase() === (tx.userEmail || "").toLowerCase()
-      );
-      if (user) {
-        user.balance -= tx.amount;
+    // Deduct/Add balances according to type & isDemo status
+    const user = db.users.find(
+      (u: UserProfile) => u.email.toLowerCase() === (tx.userEmail || "").toLowerCase()
+    );
+    if (user) {
+      if (tx.isDemo) {
+        if (tx.type === "withdrawal") {
+          user.demoBalance = Math.max(0, user.demoBalance - tx.amount);
+        } else if (tx.type === "deposit" && tx.status === "completed") {
+          user.demoBalance += tx.amount;
+        }
+      } else {
+        if (tx.type === "withdrawal" && tx.status === "pending") {
+          user.balance = Math.max(0, user.balance - tx.amount);
+        }
       }
     }
 
@@ -362,7 +371,11 @@ async function startServer() {
         (u: UserProfile) => u.email.toLowerCase() === (tx.userEmail || "").toLowerCase()
       );
       if (user) {
-        user.balance += tx.amount;
+        if (tx.isDemo) {
+          user.demoBalance += tx.amount;
+        } else {
+          user.balance += tx.amount;
+        }
       }
     }
 
@@ -391,12 +404,25 @@ async function startServer() {
         (u: UserProfile) => u.email.toLowerCase() === (tx.userEmail || "").toLowerCase()
       );
       if (user) {
-        user.balance += tx.amount;
+        if (tx.isDemo) {
+          user.demoBalance += tx.amount;
+        } else {
+          user.balance += tx.amount;
+        }
       }
     }
 
     writeDB(db);
     res.json({ success: true });
+  });
+
+  // Route: Purge/Clear all demo transaction logs (Admin Action)
+  app.post("/api/admin/transactions/clear-demo", (req, res) => {
+    const db = readDB();
+    const originalCount = db.transactions.length;
+    db.transactions = db.transactions.filter((t: any) => !t.isDemo);
+    writeDB(db);
+    res.json({ success: true, removedCount: originalCount - db.transactions.length });
   });
 
   // Route: Get all registered device users (Admin Action)

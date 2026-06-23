@@ -19,16 +19,16 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
   const [fadeOut, setFadeOut] = useState(false);
 
   useEffect(() => {
-    // Increment loading progress smoothly over 2200ms
+    // Increment loading progress smoothly over 500ms
     const progressTimer = setInterval(() => {
       setProgress((prev) => {
         if (prev >= 100) {
           clearInterval(progressTimer);
           return 100;
         }
-        return prev + 1;
+        return prev + 4;
       });
-    }, 18);
+    }, 15);
 
     // Rotate realistic loading steps
     const stepTimer = setInterval(() => {
@@ -38,16 +38,16 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
         }
         return prev;
       });
-    }, 450);
+    }, 100);
 
     // Initiate fadeout and completion callbacks
     const completeTimer = setTimeout(() => {
       setFadeOut(true);
       const closeTimer = setTimeout(() => {
         onComplete();
-      }, 500); // Allow fadeout animation to resolve
+      }, 250); // Allow fadeout animation to resolve
       return () => clearTimeout(closeTimer);
-    }, 2400);
+    }, 550);
 
     return () => {
       clearInterval(progressTimer);

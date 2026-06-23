@@ -16,7 +16,8 @@ import {
   Search,
   Sliders,
   Wallet,
-  MessageSquare
+  MessageSquare,
+  Trash2
 } from 'lucide-react';
 import { UserProfile, Transaction, SystemConfig } from '../types';
 import { 
@@ -31,7 +32,8 @@ import {
   fetchProfileApi,
   deleteAdminUserApi,
   fetchSupportMessagesApi,
-  sendSupportMessageApi
+  sendSupportMessageApi,
+  clearDemoTransactionsApi
 } from '../lib/api';
 
 interface AdminPortalProps {
@@ -97,9 +99,13 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
   const [newDemoBalance, setNewDemoBalance] = useState('');
   const [newKycStatus, setNewKycStatus] = useState<'unverified' | 'pending' | 'verified'>('unverified');
 
+  // Security confirmation overlay states
+  const [userToDeleteEmail, setUserToDeleteEmail] = useState<string | null>(null);
+  const [showClearDemoConfirm, setShowClearDemoConfirm] = useState(false);
+
   // Load Admin states
   useEffect(() => {
-    // 1. We require explicit passcode check rather than auto-unlocking, so the administrator can input the 12345678 security key
+    // 1. We require explicit passcode check rather than auto-unlocking, so the administrator can input the admin12345 security key
     setIsAdminUnlocked(false);
 
     // 2. Load system payment configurations
@@ -111,15 +117,13 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
     loadAndSyncState();
   }, [currentUser]);
 
-  // Periodic poll of all support messages when unlocked
+  // Periodic poll of all support messages, registered users, and ledger updates when unlocked
   useEffect(() => {
     if (!isAdminUnlocked) return;
     
-    // Poll support messages every 3 seconds
+    // Poll support messages, registered users, and ledger updates every 3 seconds for live sync
     const interval = setInterval(() => {
-      fetchSupportMessagesApi().then((msgs) => {
-        setAllSupportMessages(msgs);
-      }).catch(() => {});
+      loadAndSyncState();
     }, 3000);
     
     return () => clearInterval(interval);
@@ -143,7 +147,7 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
       }));
       setRegisteredUsers(mapped);
 
-      const transactionHistory = await fetchTransactionsApi('blessedfrancis509@gmail.com');
+      const transactionHistory = await fetchTransactionsApi();
       setAllTxHistory(transactionHistory);
       setPendingTxList(transactionHistory.filter(t => t.status === 'pending'));
 
@@ -159,36 +163,11 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
     e.preventDefault();
     setAdminError('');
 
-    const bypassKey = '12345678';
+    const bypassKey = 'admin12345';
 
     if (adminPasscode.trim() === bypassKey) {
-      try {
-        // Enforce sole user restrictions (automatically promote profile session to blessedfrancis509@gmail.com)
-        if (currentUser.email.trim().toLowerCase() !== 'blessedfrancis509@gmail.com') {
-          onShowNotification('Authenticating and promoting terminal session to Admin account...', 'info');
-          const adminUser = await fetchProfileApi('blessedfrancis509@gmail.com');
-          localStorage.setItem('trading_session_user', JSON.stringify(adminUser));
-          onRefreshCurrentUser();
-        }
-        setIsAdminUnlocked(true);
-        onShowNotification('Security validation cleared. Unlocked Super Administrator Panel.', 'success');
-      } catch (err) {
-        // Fallback safety: If API lookup fails, proceed with a local persistent administrator sync
-        const fallbackAdmin: UserProfile = {
-          email: 'blessedfrancis509@gmail.com',
-          fullName: 'Blessed Francis Administrator',
-          balance: 85200.0,
-          demoBalance: 50000.0,
-          isDemo: false,
-          kycStatus: 'verified',
-          twoFactorEnabled: false,
-          joinedAt: new Date().toLocaleDateString(),
-        };
-        localStorage.setItem('trading_session_user', JSON.stringify(fallbackAdmin));
-        onRefreshCurrentUser();
-        setIsAdminUnlocked(true);
-        onShowNotification('Security validation cleared (Local Safe Mode). Unlocked Admin Panel.', 'success');
-      }
+      setIsAdminUnlocked(true);
+      onShowNotification('Security validation cleared. Unlocked Super Administrator Panel.', 'success');
     } else {
       setAdminError('Access Denied. Invalid master key passcode sequence.');
     }
@@ -269,6 +248,18 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
     } else {
       onShowNotification("Failed to delete user profile.", "alert");
     }
+  };
+
+  // Purge all demo/paper-trading transaction logs
+  const handleClearDemoLogs = async () => {
+    const success = await clearDemoTransactionsApi();
+    if (success) {
+      onShowNotification('Successfully purged all paper-trading and demo transaction logs from the network.', 'success');
+      await loadAndSyncState();
+    } else {
+      onShowNotification('Failed to purge demo transaction logs.', 'alert');
+    }
+    setShowClearDemoConfirm(false);
   };
 
   // Send admin answer to selected user's support thread
@@ -633,7 +624,7 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
                             Modify Balances
                           </button>
                           <button
-                            onClick={() => handleDeleteUser(user.email)}
+                            onClick={() => setUserToDeleteEmail(user.email)}
                             className="w-full bg-red-950/20 hover:bg-red-650 hover:text-white text-red-400 font-extrabold py-2 rounded-xl text-[10px] uppercase tracking-wider transition-all border border-red-900/30 hover:border-transparent flex items-center justify-center gap-1.5 cursor-pointer"
                           >
                             Delete User
@@ -719,7 +710,7 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
                                   Modify Balances
                                 </button>
                                 <button
-                                  onClick={() => handleDeleteUser(user.email)}
+                                  onClick={() => setUserToDeleteEmail(user.email)}
                                   className="bg-red-950/20 hover:bg-red-650 hover:text-white text-red-400 border border-red-900/40 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide cursor-pointer transition-all font-sans hover:border-transparent inline-flex items-center gap-1.5"
                                 >
                                   Delete User
@@ -818,11 +809,21 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
           {/* TAB 2: PENDING SETTLEMENT CLEARANCES APPROVAL QUEUE */}
           {adminTab === 'clearance' && (
             <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-black text-white font-sans uppercase">Pending Settlement Clearances Ledger</h3>
-                <p className="text-xs text-zinc-400 leading-normal">
-                  Approve or reject outbound profit withdrawals or card deposit injections here. This maintains ledger audits and adjusts live user portfolios.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-850 pb-4">
+                <div>
+                  <h3 className="text-lg font-black text-white font-sans uppercase">Pending Settlement Clearances Ledger</h3>
+                  <p className="text-xs text-zinc-400 leading-normal">
+                    Approve or reject outbound profit withdrawals or card deposit injections here. This maintains ledger audits and adjusts live user portfolios.
+                  </p>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={() => setShowClearDemoConfirm(true)}
+                    className="bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 border border-red-500/20 px-3.5 py-1.5 rounded-lg text-[10px] font-black uppercase font-sans tracking-wide transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> PURGE DEMO LOGS
+                  </button>
+                </div>
               </div>
 
               {pendingTxList.length === 0 ? (
@@ -846,6 +847,9 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
                               <span className="text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded text-[8px] font-extrabold uppercase font-sans border border-emerald-500/10">INCOMING DEPOSIT</span>
                             ) : (
                               <span className="text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded text-[8px] font-extrabold uppercase font-sans border border-amber-500/10">OUTBOUND PAYOUT</span>
+                            )}
+                            {tx.isDemo && (
+                              <span className="text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded text-[8px] font-black uppercase font-sans border border-amber-500/25">DEMO PAPER</span>
                             )}
                             <span className="text-zinc-400 font-sans font-bold text-[10px]">({tx.userEmail})</span>
                           </div>
@@ -1240,6 +1244,83 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
               </div>
             );
           })()}
+
+          {/* DELETE USER ACCOUNT SECURITY CONFIRMATION OVERLAY */}
+          {userToDeleteEmail && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/90 backdrop-blur-md">
+              <div className="absolute inset-0" onClick={() => setUserToDeleteEmail(null)}></div>
+              <div className="w-full max-w-md relative z-10 bg-[#1a1212] border border-red-900/40 rounded-2xl shadow-2xl p-6 space-y-4">
+                <div className="text-center space-y-2">
+                  <div className="inline-flex items-center justify-center p-3 rounded-full bg-red-950/40 border border-red-900/40 text-red-400 mb-2">
+                    <ShieldAlert className="h-8 w-8 text-red-500 animate-pulse" />
+                  </div>
+                  <h4 className="font-extrabold text-white text-base uppercase font-sans tracking-wide">
+                    Confirm Account Purge
+                  </h4>
+                  <p className="text-xs text-zinc-400 font-sans leading-relaxed">
+                    Are you sure you want to permanently delete the terminal profile <span className="text-red-400 font-mono font-bold underline">{userToDeleteEmail}</span>? This action is <span className="text-red-400 font-bold font-extrabold">IRREVERSIBLE</span>.
+                  </p>
+                  <div className="bg-zinc-950/60 p-3 rounded-xl border border-zinc-900 text-left text-[11px] font-mono text-zinc-500 space-y-1">
+                    <p>● Deletes all profile authentication credentials.</p>
+                    <p>● Purges all associated transaction audit logs.</p>
+                    <p>● Clears all open market positions and trade logs.</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <button
+                    onClick={() => setUserToDeleteEmail(null)}
+                    className="w-full bg-zinc-850 hover:bg-zinc-700 text-zinc-300 font-bold py-2.5 rounded-xl uppercase tracking-wider text-[10px] font-sans transition-all cursor-pointer"
+                  >
+                    Cancel Void
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const email = userToDeleteEmail;
+                      setUserToDeleteEmail(null);
+                      await handleDeleteUser(email);
+                    }}
+                    className="w-full bg-red-650 hover:bg-red-700 text-white font-black py-2.5 rounded-xl uppercase tracking-wider text-[10px] font-sans transition-all cursor-pointer"
+                  >
+                    CONFIRM DELETE
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* PURGE ALL DEMO LOGS SECURITY CONFIRMATION OVERLAY */}
+          {showClearDemoConfirm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/90 backdrop-blur-md">
+              <div className="absolute inset-0" onClick={() => setShowClearDemoConfirm(false)}></div>
+              <div className="w-full max-w-md relative z-10 bg-[#1c1710] border border-amber-900/40 rounded-2xl shadow-2xl p-6 space-y-4">
+                <div className="text-center space-y-2">
+                  <div className="inline-flex items-center justify-center p-3 rounded-full bg-amber-950/40 border border-amber-900/40 text-amber-500 mb-2">
+                    <Trash2 className="h-8 w-8 text-amber-500 animate-pulse" />
+                  </div>
+                  <h4 className="font-extrabold text-white text-base uppercase font-sans tracking-wide">
+                    Confirm Demo Logs Purge
+                  </h4>
+                  <p className="text-xs text-zinc-400 font-sans leading-relaxed">
+                    Are you sure you want to permanently purge all demo/paper-trading transaction logs? Live transaction logs and accounts will remain unaffected.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <button
+                    onClick={() => setShowClearDemoConfirm(false)}
+                    className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold py-2.5 rounded-xl uppercase tracking-wider text-[10px] font-sans transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleClearDemoLogs}
+                    className="w-full bg-amber-600 hover:bg-amber-500 text-zinc-950 font-black py-2.5 rounded-xl uppercase tracking-wider text-[10px] font-sans transition-all cursor-pointer"
+                  >
+                    CONFIRM PURGE
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
         </main>
       </div>

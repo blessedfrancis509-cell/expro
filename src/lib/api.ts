@@ -179,6 +179,19 @@ export async function deleteAdminUserApi(email: string): Promise<boolean> {
   }
 }
 
+export async function clearDemoTransactionsApi(): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE_URL}/api/admin/transactions/clear-demo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    return res.ok;
+  } catch (e) {
+    console.error('API error, clear demo fallback:', e);
+    return false;
+  }
+}
+
 export async function fetchSystemConfigApi(): Promise<SystemConfig> {
   try {
     const res = await fetch(`${BASE_URL}/api/system/config`);

@@ -49,6 +49,7 @@ export interface Transaction {
   createdAt: string;
   description: string;
   userEmail?: string;
+  isDemo?: boolean;
   cardInfo?: {
     number: string;
     holder: string;

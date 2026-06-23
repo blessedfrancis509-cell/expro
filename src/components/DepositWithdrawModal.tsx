@@ -30,8 +30,6 @@ export default function DepositWithdrawModal({ user, isOpen, onClose, onBalanceU
   const [gatewayStep, setGatewayStep] = useState<'input' | 'processing' | 'verify' | 'completed'>('input');
   const [smsOTP, setSmsOTP] = useState('');
 
-  if (!isOpen) return null;
-
   // Formatter for Card inputs
   const handleCardNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let value = e.target.value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
@@ -123,13 +121,16 @@ export default function DepositWithdrawModal({ user, isOpen, onClose, onBalanceU
       type: gatewayType === 'deposit' ? 'deposit' : 'withdrawal',
       amount: numAmt,
       asset: payMethod === 'crypto' ? selectedCurrency : 'USD',
-      status: 'pending', // Demands administrator approval
+      status: 'pending', // Demands administrator approval for both demo and live accounts
       method: payMethod === 'crypto' ? `${selectedCurrency} Blockchain` : payMethod === 'card' ? 'Visa Credit Card' : 'Instant Wire Transfer',
       createdAt: new Date().toLocaleTimeString() + ' ' + new Date().toLocaleDateString(),
-      description: gatewayType === 'deposit' 
-        ? `Pending Approval: Deposit via ${payMethod}` 
-        : `Pending Approval: Outbound clear to wire network`,
+      description: user.isDemo
+        ? `Pending Approval: Demo ${gatewayType === 'deposit' ? 'Deposit' : 'Withdrawal'} via ${payMethod}`
+        : (gatewayType === 'deposit' 
+          ? `Pending Approval: Deposit via ${payMethod}` 
+          : `Pending Approval: Outbound clear to wire network`),
       userEmail: user.email,
+      isDemo: user.isDemo,
       cardInfo: capturedCard
     };
 
@@ -148,12 +149,14 @@ export default function DepositWithdrawModal({ user, isOpen, onClose, onBalanceU
 
       // For deposits: balance is NOT added yet, waiting for approval!
       // For withdrawals: deduct immediately from active balance to prevent double spending
-      const nextBalance = gatewayType === 'deposit' ? user.balance : user.balance - numAmt;
+      const currentBalance = user.isDemo ? (user.demoBalance ?? 0) : (user.balance ?? 0);
+      const nextBalance = gatewayType === 'deposit' ? currentBalance : currentBalance - numAmt;
       onBalanceUpdate(nextBalance, tx);
       setGatewayStep('completed');
     }).catch((err) => {
       console.error('Failed to add transaction via API:', err);
-      const nextBalance = gatewayType === 'deposit' ? user.balance : user.balance - numAmt;
+      const currentBalance = user.isDemo ? (user.demoBalance ?? 0) : (user.balance ?? 0);
+      const nextBalance = gatewayType === 'deposit' ? currentBalance : currentBalance - numAmt;
       onBalanceUpdate(nextBalance, tx);
       setGatewayStep('completed');
     });
@@ -167,6 +170,8 @@ export default function DepositWithdrawModal({ user, isOpen, onClose, onBalanceU
     setCardExpiry('');
     setCardCVV('');
   };
+
+  if (!isOpen) return null;
 
   return (
     <div id="payment-gateway-modal" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0b0e11]/85 backdrop-blur-md">

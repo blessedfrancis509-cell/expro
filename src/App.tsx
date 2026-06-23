@@ -10,7 +10,7 @@ import PerformanceAnalytics from './components/PerformanceAnalytics';
 import SignalAlerts from './components/SignalAlerts';
 import ProfileSettings from './components/ProfileSettings';
 import SplashScreen from './components/SplashScreen';
-import { fetchProfileApi, fetchTransactionsApi, fetchSupportMessagesApi, sendSupportMessageApi } from './lib/api';
+import { fetchProfileApi, fetchTransactionsApi, fetchSupportMessagesApi, sendSupportMessageApi, addTransactionApi } from './lib/api';
 
 // Icons
 import {
@@ -489,8 +489,12 @@ export default function App() {
       status: 'completed',
       method: 'Liquid settlement refund',
       createdAt: new Date().toLocaleTimeString() + ' ' + new Date().toLocaleDateString(),
-      description: `${reason}: ${targetPos.pnl >= 0 ? 'Gained' : 'Lost'} $${targetPos.pnl.toFixed(2)}`
+      description: `${reason}: ${targetPos.pnl >= 0 ? 'Gained' : 'Lost'} $${targetPos.pnl.toFixed(2)}`,
+      userEmail: currentUser.email,
+      isDemo: currentUser.isDemo
     };
+
+    addTransactionApi(settleRecord).catch((err) => console.error("Failed to persist settlement:", err));
 
     setTransactions((prev) => [settleRecord, ...prev]);
 
@@ -503,9 +507,10 @@ export default function App() {
   // Safe callback updates from integrated Deposit/Withdraw gates
   const handleBalanceClearFromGateway = (nextBalance: number, tx: Transaction) => {
     if (!currentUser) return;
+    const balanceField = currentUser.isDemo ? 'demoBalance' : 'balance';
     const nextUser = {
       ...currentUser,
-      balance: nextBalance
+      [balanceField]: nextBalance
     };
     setCurrentUser(nextUser);
     localStorage.setItem('trading_session_user', JSON.stringify(nextUser));
@@ -531,6 +536,13 @@ export default function App() {
     fetchProfileApi(activeEmail).then((updatedUser) => {
       setCurrentUser(updatedUser);
       localStorage.setItem('trading_session_user', JSON.stringify(updatedUser));
+      
+      // Also sync user's transaction ledger list
+      fetchTransactionsApi(activeEmail).then((txs) => {
+        if (txs) {
+          setTransactions(txs);
+        }
+      }).catch(() => {});
     }).catch(() => {
       const saved = localStorage.getItem('trading_session_user');
       if (saved) {
