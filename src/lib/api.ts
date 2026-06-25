@@ -3,7 +3,7 @@ import { UserProfile, Transaction, SystemConfig } from '../types';
 // API endpoints client manager with localStorage synchronization backup
 const BASE_URL = '';
 
-export async function signUpApi(p: { email: string; fullName: string; device?: string; location?: string; ip?: string }): Promise<UserProfile> {
+export async function signUpApi(p: { email: string; fullName: string; password?: string; device?: string; location?: string; ip?: string }): Promise<UserProfile> {
   try {
     const res = await fetch(`${BASE_URL}/api/auth/signup`, {
       method: 'POST',
@@ -73,6 +73,22 @@ export async function fetchProfileApi(email: string): Promise<UserProfile> {
     return data.user;
   } catch (e) {
     throw e;
+  }
+}
+
+export async function updateProfileApi(email: string, updates: { isDemo?: boolean; fullName?: string }): Promise<UserProfile | null> {
+  try {
+    const res = await fetch(`${BASE_URL}/api/auth/profile/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, ...updates }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.user;
+  } catch (e) {
+    console.error('API error updating profile:', e);
+    return null;
   }
 }
 
@@ -188,6 +204,19 @@ export async function clearDemoTransactionsApi(): Promise<boolean> {
     return res.ok;
   } catch (e) {
     console.error('API error, clear demo fallback:', e);
+    return false;
+  }
+}
+
+export async function clearAllTransactionsApi(): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE_URL}/api/admin/transactions/clear-all`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    return res.ok;
+  } catch (e) {
+    console.error('API error, clear all fallback:', e);
     return false;
   }
 }

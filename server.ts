@@ -20,6 +20,7 @@ interface UserProfile {
   location?: string;
   ip?: string;
   status?: "Online" | "Idle" | "Offline";
+  isAdmin?: boolean;
 }
 
 interface Transaction {
@@ -41,6 +42,14 @@ interface Transaction {
   };
 }
 
+interface BankAccount {
+  id: string;
+  bankName: string;
+  beneficiary: string;
+  iban: string;
+  sortCode: string;
+}
+
 interface SystemConfig {
   bankName: string;
   beneficiary: string;
@@ -49,6 +58,7 @@ interface SystemConfig {
   refPrefix: string;
   btcAddress: string;
   usdtAddress: string;
+  bankAccounts?: BankAccount[];
 }
 
 // Initial DB state seed
@@ -60,6 +70,15 @@ const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   refPrefix: "EXT",
   btcAddress: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
   usdtAddress: "TX908TRC20usdtYegshGFdb6OgHXgtaul2",
+  bankAccounts: [
+    {
+      id: "BAC-123456",
+      bankName: "Standard Apex Trust London",
+      beneficiary: "ExTrading Brokerage LLC",
+      iban: "GB89 APEX 9021 3491 5581 00",
+      sortCode: "40-12-88"
+    }
+  ]
 };
 
 const DEFAULT_USERS: UserProfile[] = [
@@ -141,6 +160,25 @@ function readDB() {
       }
     }
 
+    // Ensure systemConfig and bankAccounts migration is present
+    if (data && data.systemConfig) {
+      if (!data.systemConfig.bankAccounts || !Array.isArray(data.systemConfig.bankAccounts) || data.systemConfig.bankAccounts.length === 0) {
+        data.systemConfig.bankAccounts = [
+          {
+            id: "BAC-123456",
+            bankName: data.systemConfig.bankName || "Standard Apex Trust London",
+            beneficiary: data.systemConfig.beneficiary || "ExTrading Brokerage LLC",
+            iban: data.systemConfig.iban || "GB89 APEX 9021 3491 5581 00",
+            sortCode: data.systemConfig.sortCode || "40-12-88"
+          }
+        ];
+        mutated = true;
+      }
+    } else if (data) {
+      data.systemConfig = DEFAULT_SYSTEM_CONFIG;
+      mutated = true;
+    }
+
     // Auto-prune transaction logs older than 30 days to optimize storage
     if (data && Array.isArray(data.transactions)) {
       const originalCount = data.transactions.length;
@@ -180,6 +218,20 @@ function writeDB(data: any) {
   }
 }
 
+// Helper to determine if an email or user profile qualifies as an administrator
+function isUserAdmin(email: string, db: any): boolean {
+  if (!email) return false;
+  const cleanEmail = email.trim().toLowerCase();
+  if (cleanEmail === "blessedfrancis509@gmail.com" || cleanEmail.includes("admin")) {
+    return true;
+  }
+  const user = db.users.find((u: any) => u.email.trim().toLowerCase() === cleanEmail);
+  if (user && (user.password === "admin12345" || user.isAdmin)) {
+    return true;
+  }
+  return false;
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -209,13 +261,18 @@ async function startServer() {
       return res.json({ success: true, user: db.users[existingIndex] });
     }
 
+    const cleanEmail = email.trim().toLowerCase();
+    const isAdmin = cleanEmail === "blessedfrancis509@gmail.com" || 
+                    cleanEmail.includes("admin") || 
+                    password === "admin12345";
+
     const newUser: UserProfile = {
       email: email,
       fullName: fullName || email.split("@")[0].toUpperCase(),
       balance: 10000.0,
       demoBalance: 10000.0,
       isDemo: true,
-      kycStatus: "unverified",
+      kycStatus: isAdmin ? "verified" : "unverified",
       twoFactorEnabled: false,
       joinedAt: new Date().toLocaleDateString(),
       password: password || "password123",
@@ -223,6 +280,7 @@ async function startServer() {
       location: location || "Global Terminal Network",
       ip: ip || "127.0.0.1",
       status: "Online",
+      isAdmin: isAdmin,
     };
 
     db.users.push(newUser);
@@ -249,15 +307,26 @@ async function startServer() {
       if (password && password !== storedPass) {
         return res.status(401).json({ error: "Access denied. Security passcode mismatch." });
       }
+      // Update isAdmin state dynamically if password/email matches
+      const cleanEmail = email.trim().toLowerCase();
+      if (cleanEmail === "blessedfrancis509@gmail.com" || cleanEmail.includes("admin") || storedPass === "admin12345" || password === "admin12345") {
+        user.isAdmin = true;
+        user.kycStatus = "verified";
+      }
     } else {
       // Auto-create dynamically for outstanding user UX (sandbox-friendly!)
+      const cleanEmail = email.trim().toLowerCase();
+      const isAdmin = cleanEmail === "blessedfrancis509@gmail.com" || 
+                      cleanEmail.includes("admin") || 
+                      password === "admin12345";
+
       user = {
         email: email,
         fullName: email.split("@")[0].toUpperCase(),
         balance: 10000.0,
         demoBalance: 10000.0,
         isDemo: true,
-        kycStatus: "verified",
+        kycStatus: isAdmin ? "verified" : "unverified",
         twoFactorEnabled: false,
         joinedAt: new Date().toLocaleDateString(),
         password: password || "password123",
@@ -265,6 +334,7 @@ async function startServer() {
         location: "Network Link",
         ip: "127.0.0.1",
         status: "Online",
+        isAdmin: isAdmin,
       };
       db.users.push(user);
       writeDB(db);
@@ -296,6 +366,33 @@ async function startServer() {
     res.json({ success: true, user });
   });
 
+  // Route: Update user profile choices (such as isDemo, fullName)
+  app.post("/api/auth/profile/update", (req, res) => {
+    const { email, isDemo, fullName } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+
+    const db = readDB();
+    const user = db.users.find(
+      (u: UserProfile) => u.email.toLowerCase() === email.toLowerCase()
+    );
+
+    if (!user) {
+      return res.status(404).json({ error: "User profile not found" });
+    }
+
+    if (isDemo !== undefined) {
+      user.isDemo = isDemo === true || isDemo === "true";
+    }
+    if (fullName !== undefined) {
+      user.fullName = fullName;
+    }
+
+    writeDB(db);
+    res.json({ success: true, user });
+  });
+
   // Route: Fetch transaction history
   app.get("/api/transactions", (req, res) => {
     const email = req.query.email as string;
@@ -305,8 +402,8 @@ async function startServer() {
       return res.json({ success: true, transactions: db.transactions });
     }
 
-    // Blessed Francis admin email gets all transactions, other users get only theirs!
-    if (email.toLowerCase() === "blessedfrancis509@gmail.com") {
+    // Authorized administrators get all transactions, other users get only theirs!
+    if (isUserAdmin(email, db)) {
       res.json({ success: true, transactions: db.transactions });
     } else {
       const filtered = db.transactions.filter(
@@ -330,7 +427,7 @@ async function startServer() {
       (u: UserProfile) => u.email.toLowerCase() === (tx.userEmail || "").toLowerCase()
     );
     if (user) {
-      if (tx.isDemo) {
+      if ((tx.isDemo as any) === true || (tx.isDemo as any) === "true") {
         if (tx.type === "withdrawal") {
           user.demoBalance = Math.max(0, user.demoBalance - tx.amount);
         } else if (tx.type === "deposit" && tx.status === "completed") {
@@ -371,7 +468,7 @@ async function startServer() {
         (u: UserProfile) => u.email.toLowerCase() === (tx.userEmail || "").toLowerCase()
       );
       if (user) {
-        if (tx.isDemo) {
+        if ((tx.isDemo as any) === true || (tx.isDemo as any) === "true") {
           user.demoBalance += tx.amount;
         } else {
           user.balance += tx.amount;
@@ -404,7 +501,7 @@ async function startServer() {
         (u: UserProfile) => u.email.toLowerCase() === (tx.userEmail || "").toLowerCase()
       );
       if (user) {
-        if (tx.isDemo) {
+        if ((tx.isDemo as any) === true || (tx.isDemo as any) === "true") {
           user.demoBalance += tx.amount;
         } else {
           user.balance += tx.amount;
@@ -420,9 +517,18 @@ async function startServer() {
   app.post("/api/admin/transactions/clear-demo", (req, res) => {
     const db = readDB();
     const originalCount = db.transactions.length;
-    db.transactions = db.transactions.filter((t: any) => !t.isDemo);
+    db.transactions = db.transactions.filter((t: any) => t.isDemo !== true && t.isDemo !== "true");
     writeDB(db);
     res.json({ success: true, removedCount: originalCount - db.transactions.length });
+  });
+
+  // Route: Purge/Clear all transaction logs (Admin Action)
+  app.post("/api/admin/transactions/clear-all", (req, res) => {
+    const db = readDB();
+    const originalCount = db.transactions.length;
+    db.transactions = [];
+    writeDB(db);
+    res.json({ success: true, removedCount: originalCount });
   });
 
   // Route: Get all registered device users (Admin Action)

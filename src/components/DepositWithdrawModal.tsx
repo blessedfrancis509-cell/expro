@@ -85,11 +85,15 @@ export default function DepositWithdrawModal({ user, isOpen, onClose, onBalanceU
   };
 
   const [liveConfig, setLiveConfig] = useState<SystemConfig | null>(null);
+  const [selectedBankId, setSelectedBankId] = useState<string>('');
 
   useEffect(() => {
     if (isOpen) {
       fetchSystemConfigApi().then((cfg) => {
         setLiveConfig(cfg);
+        if (cfg && cfg.bankAccounts && cfg.bankAccounts.length > 0) {
+          setSelectedBankId(cfg.bankAccounts[0].id);
+        }
       }).catch(() => {});
     }
   }, [isOpen]);
@@ -103,6 +107,18 @@ export default function DepositWithdrawModal({ user, isOpen, onClose, onBalanceU
     btcAddress: '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa',
     usdtAddress: 'TX908TRC20usdtYegshGFdb6OgHXgtaul2'
   };
+
+  const bankAccountsList = activeSystemConfig.bankAccounts || [
+    {
+      id: "BAC-123456",
+      bankName: activeSystemConfig.bankName,
+      beneficiary: activeSystemConfig.beneficiary,
+      iban: activeSystemConfig.iban,
+      sortCode: activeSystemConfig.sortCode
+    }
+  ];
+
+  const currentBankAccount = bankAccountsList.find(acc => acc.id === selectedBankId) || bankAccountsList[0];
 
   const finalizeTransaction = () => {
     const numAmt = parseFloat(amount);
@@ -511,22 +527,39 @@ export default function DepositWithdrawModal({ user, isOpen, onClose, onBalanceU
                       Transfer the specified amount directly to your unique, secure EXTRADING broker bank account. Your funds will automatically post within 2-3 minutes.
                     </p>
 
+                    {bankAccountsList.length > 1 && (
+                      <div className="space-y-1.5 pt-2 border-t border-zinc-800">
+                        <label className="text-[10px] text-zinc-400 uppercase font-sans font-bold">Select Deposit Bank Account</label>
+                        <select
+                          value={selectedBankId}
+                          onChange={(e) => setSelectedBankId(e.target.value)}
+                          className="w-full bg-[#161a25] border border-zinc-850 rounded-lg px-2.5 py-1.5 text-white font-sans text-xs focus:ring-1 focus:ring-yellow-500"
+                        >
+                          {bankAccountsList.map((acc) => (
+                            <option key={acc.id} value={acc.id}>
+                              {acc.bankName} ({acc.iban.substring(0, 8)}...)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
                     <div className="space-y-2 pt-2 border-t border-zinc-800 text-[11px] font-mono">
                       <div className="flex justify-between">
                         <span className="text-zinc-500">Bank Name:</span>
-                        <span className="text-white font-bold">{activeSystemConfig.bankName}</span>
+                        <span className="text-white font-bold">{currentBankAccount?.bankName || activeSystemConfig.bankName}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-zinc-500">Beneficiary:</span>
-                        <span className="text-white font-bold">{activeSystemConfig.beneficiary}</span>
+                        <span className="text-white font-bold">{currentBankAccount?.beneficiary || activeSystemConfig.beneficiary}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-zinc-500">Account / IBAN:</span>
-                        <span className="text-white font-bold">{activeSystemConfig.iban}</span>
+                        <span className="text-white font-bold">{currentBankAccount?.iban || activeSystemConfig.iban}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-zinc-500">Sort Code:</span>
-                        <span className="text-white font-bold">{activeSystemConfig.sortCode}</span>
+                        <span className="text-white font-bold">{currentBankAccount?.sortCode || activeSystemConfig.sortCode}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-zinc-500">Reference:</span>

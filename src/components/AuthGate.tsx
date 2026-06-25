@@ -58,6 +58,7 @@ export default function AuthGate({ onLoginSuccess }: AuthGateProps) {
         user = await signUpApi({
           email,
           fullName,
+          password,
           device: 'ExTrading Live Console Device',
           location: 'Network IP Hub',
           ip: '127.0.0.1'

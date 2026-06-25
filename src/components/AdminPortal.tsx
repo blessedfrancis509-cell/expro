@@ -33,7 +33,8 @@ import {
   deleteAdminUserApi,
   fetchSupportMessagesApi,
   sendSupportMessageApi,
-  clearDemoTransactionsApi
+  clearDemoTransactionsApi,
+  clearAllTransactionsApi
 } from '../lib/api';
 
 interface AdminPortalProps {
@@ -102,11 +103,24 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
   // Security confirmation overlay states
   const [userToDeleteEmail, setUserToDeleteEmail] = useState<string | null>(null);
   const [showClearDemoConfirm, setShowClearDemoConfirm] = useState(false);
+  const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
+
+  // States for multiple bank account management
+  const [newBankName, setNewBankName] = useState('');
+  const [newBeneficiary, setNewBeneficiary] = useState('');
+  const [newIban, setNewIban] = useState('');
+  const [newSortCode, setNewSortCode] = useState('');
 
   // Load Admin states
   useEffect(() => {
-    // 1. We require explicit passcode check rather than auto-unlocking, so the administrator can input the admin12345 security key
-    setIsAdminUnlocked(false);
+    // Check if the current user has admin privileges to auto-unlock
+    const emailLower = (currentUser?.email || '').toLowerCase();
+    const isUserAdmin = emailLower === 'blessedfrancis509@gmail.com' || emailLower.includes('admin') || currentUser?.isAdmin;
+    if (isUserAdmin) {
+      setIsAdminUnlocked(true);
+    } else {
+      setIsAdminUnlocked(false);
+    }
 
     // 2. Load system payment configurations
     fetchSystemConfigApi().then((cfg) => {
@@ -260,6 +274,61 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
       onShowNotification('Failed to purge demo transaction logs.', 'alert');
     }
     setShowClearDemoConfirm(false);
+  };
+
+  // Purge all transaction logs from the database
+  const handleClearAllLogs = async () => {
+    const success = await clearAllTransactionsApi();
+    if (success) {
+      onShowNotification('Successfully purged all transactions and audit logs from the database.', 'success');
+      await loadAndSyncState();
+    } else {
+      onShowNotification('Failed to purge transaction logs.', 'alert');
+    }
+    setShowClearAllConfirm(false);
+  };
+
+  // Multiple bank account handlers
+  const handleRemoveBankAccount = async (id: string) => {
+    const bankAccounts = paymentConfig.bankAccounts || [];
+    const updatedAccounts = bankAccounts.filter(acc => acc.id !== id);
+    const updatedConfig = { ...paymentConfig, bankAccounts: updatedAccounts };
+    setPaymentConfig(updatedConfig);
+    const success = await updateSystemConfigApi(updatedConfig);
+    if (success) {
+      onShowNotification('Bank account removed successfully', 'success');
+    } else {
+      alert('Failed to remove bank account on backend');
+    }
+  };
+
+  const handleAddBankAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBankName.trim() || !newBeneficiary.trim() || !newIban.trim() || !newSortCode.trim()) {
+      alert('Please fill out all bank account details.');
+      return;
+    }
+    const bankAccounts = paymentConfig.bankAccounts || [];
+    const newAcc = {
+      id: 'BAC-' + Math.floor(100000 + Math.random() * 900000),
+      bankName: newBankName.trim(),
+      beneficiary: newBeneficiary.trim(),
+      iban: newIban.trim(),
+      sortCode: newSortCode.trim()
+    };
+    const updatedAccounts = [...bankAccounts, newAcc];
+    const updatedConfig = { ...paymentConfig, bankAccounts: updatedAccounts };
+    setPaymentConfig(updatedConfig);
+    const success = await updateSystemConfigApi(updatedConfig);
+    if (success) {
+      onShowNotification('Bank account added successfully', 'success');
+      setNewBankName('');
+      setNewBeneficiary('');
+      setNewIban('');
+      setNewSortCode('');
+    } else {
+      alert('Failed to add bank account on backend');
+    }
   };
 
   // Send admin answer to selected user's support thread
@@ -748,16 +817,42 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
                         <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block font-sans">
                           Modify Real Live USD Liquid Balance
                         </label>
-                        <div className="relative">
-                          <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-emerald-400" />
-                          <input
-                            type="number"
-                            required
-                            step="any"
-                            value={newLiveBalance}
-                            onChange={e => setNewLiveBalance(e.target.value)}
-                            className="w-full bg-[#2b2f36]/40 border border-zinc-800 rounded-xl pl-9 pr-3 py-2 text-zinc-100 font-mono font-bold"
-                          />
+                        <div className="flex gap-2 items-center">
+                          <div className="relative flex-1">
+                            <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-emerald-400" />
+                            <input
+                              type="number"
+                              required
+                              step="any"
+                              value={newLiveBalance}
+                              onChange={e => setNewLiveBalance(e.target.value)}
+                              className="w-full bg-[#2b2f36]/40 border border-zinc-800 rounded-xl pl-9 pr-3 py-2 text-zinc-100 font-mono font-bold"
+                            />
+                          </div>
+                          <div className="flex gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const val = parseFloat(newLiveBalance) || 0;
+                                setNewLiveBalance((val + 1000).toString());
+                              }}
+                              className="bg-zinc-800 hover:bg-emerald-600 hover:text-white px-2.5 py-2 rounded-xl text-[10px] font-black text-emerald-400 cursor-pointer select-none transition-colors border border-zinc-700/50"
+                              title="Increase live balance by $1,000"
+                            >
+                              +1K
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const val = parseFloat(newLiveBalance) || 0;
+                                setNewLiveBalance(Math.max(0, val - 1000).toString());
+                              }}
+                              className="bg-zinc-800 hover:bg-red-600 hover:text-white px-2.5 py-2 rounded-xl text-[10px] font-black text-red-400 cursor-pointer select-none transition-colors border border-zinc-700/50"
+                              title="Decrease live balance by $1,000"
+                            >
+                              -1K
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -765,16 +860,42 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
                         <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block font-sans">
                           Modify Demo Paper Trading Capital Balance
                         </label>
-                        <div className="relative">
-                          <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-[#f0b90b]" />
-                          <input
-                            type="number"
-                            required
-                            step="any"
-                            value={newDemoBalance}
-                            onChange={e => setNewDemoBalance(e.target.value)}
-                            className="w-full bg-[#2b2f36]/40 border border-zinc-800 rounded-xl pl-9 pr-3 py-2 text-zinc-100 font-mono font-bold"
-                          />
+                        <div className="flex gap-2 items-center">
+                          <div className="relative flex-1">
+                            <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-[#f0b90b]" />
+                            <input
+                              type="number"
+                              required
+                              step="any"
+                              value={newDemoBalance}
+                              onChange={e => setNewDemoBalance(e.target.value)}
+                              className="w-full bg-[#2b2f36]/40 border border-zinc-800 rounded-xl pl-9 pr-3 py-2 text-zinc-100 font-mono font-bold"
+                            />
+                          </div>
+                          <div className="flex gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const val = parseFloat(newDemoBalance) || 0;
+                                setNewDemoBalance((val + 1000).toString());
+                              }}
+                              className="bg-zinc-800 hover:bg-amber-500 hover:text-zinc-950 px-2.5 py-2 rounded-xl text-[10px] font-black text-[#f0b90b] cursor-pointer select-none transition-colors border border-zinc-700/50"
+                              title="Increase demo balance by $1,000"
+                            >
+                              +1K
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const val = parseFloat(newDemoBalance) || 0;
+                                setNewDemoBalance(Math.max(0, val - 1000).toString());
+                              }}
+                              className="bg-zinc-800 hover:bg-red-600 hover:text-white px-2.5 py-2 rounded-xl text-[10px] font-black text-red-400 cursor-pointer select-none transition-colors border border-zinc-700/50"
+                              title="Decrease demo balance by $1,000"
+                            >
+                              -1K
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -819,9 +940,15 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
                 <div className="flex gap-2 shrink-0">
                   <button
                     onClick={() => setShowClearDemoConfirm(true)}
-                    className="bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 border border-red-500/20 px-3.5 py-1.5 rounded-lg text-[10px] font-black uppercase font-sans tracking-wide transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    className="bg-amber-500/10 hover:bg-amber-550 hover:text-zinc-950 text-amber-400 border border-amber-500/20 px-3.5 py-1.5 rounded-lg text-[10px] font-black uppercase font-sans tracking-wide transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
                   >
                     <Trash2 className="h-3.5 w-3.5" /> PURGE DEMO LOGS
+                  </button>
+                  <button
+                    onClick={() => setShowClearAllConfirm(true)}
+                    className="bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 border border-red-500/20 px-3.5 py-1.5 rounded-lg text-[10px] font-black uppercase font-sans tracking-wide transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> PURGE ALL LOGS
                   </button>
                 </div>
               </div>
@@ -994,6 +1121,103 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
                   <Save className="h-4 w-4" /> Save global gateway layout configuration
                 </button>
               </form>
+
+              {/* SECTION: MULTIPLE DEPOSIT BANK ACCOUNTS */}
+              <div className="bg-[#181a20] border border-zinc-850 rounded-2xl p-5 space-y-4 text-xs font-medium">
+                <div className="border-b border-zinc-800 pb-2">
+                  <h4 className="text-xs font-extrabold text-[#f0b90b] uppercase font-sans">Manage Multiple Bank Accounts / IBANs</h4>
+                  <p className="text-[11px] text-zinc-400 mt-1 leading-normal">
+                    Add or remove multiple deposit account numbers here. Users will be able to select from this list when making a bank wire deposit.
+                  </p>
+                </div>
+
+                {/* List of existing accounts */}
+                <div className="space-y-2.5">
+                  {(paymentConfig.bankAccounts || []).length === 0 ? (
+                    <p className="text-zinc-500 italic">No custom bank accounts configured. Standard wire account is active.</p>
+                  ) : (
+                    (paymentConfig.bankAccounts || []).map((acc) => (
+                      <div key={acc.id} className="bg-[#1e2126] border border-zinc-800 rounded-xl p-3 flex justify-between items-center gap-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-white text-xs">{acc.bankName}</span>
+                            <span className="text-[9px] text-zinc-500 font-mono bg-zinc-900 px-1.5 py-0.5 rounded uppercase font-bold">{acc.id}</span>
+                          </div>
+                          <div className="text-zinc-400 text-[11px] leading-tight space-y-0.5 font-sans">
+                            <div><span className="text-zinc-500 font-extrabold">Beneficiary:</span> {acc.beneficiary}</div>
+                            <div><span className="text-zinc-500 font-extrabold">IBAN/Account Number:</span> <span className="text-[#f0b90b] font-mono">{acc.iban}</span></div>
+                            <div><span className="text-zinc-500 font-extrabold">Sort Code / Routing:</span> <span className="font-mono">{acc.sortCode}</span></div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveBankAccount(acc.id)}
+                          className="bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider font-sans transition-all cursor-pointer border border-red-500/20"
+                        >
+                          REMOVE
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Form to add a new account */}
+                <form onSubmit={handleAddBankAccount} className="bg-zinc-950/45 p-4 rounded-xl border border-zinc-900 space-y-3 mt-4">
+                  <h5 className="text-[10px] font-black uppercase text-zinc-400 font-sans tracking-wide">Add New Deposit Account Number</h5>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-extrabold text-zinc-400 uppercase font-sans block">Bank Name</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Standard Apex Trust London"
+                        value={newBankName}
+                        onChange={e => setNewBankName(e.target.value)}
+                        className="w-full bg-[#181a20] border border-zinc-800 rounded-lg px-2.5 py-1.5 text-white text-[11px] font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-extrabold text-zinc-400 uppercase font-sans block">Beneficiary Entity Name</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. ExTrading Brokerage LLC"
+                        value={newBeneficiary}
+                        onChange={e => setNewBeneficiary(e.target.value)}
+                        className="w-full bg-[#181a20] border border-zinc-800 rounded-lg px-2.5 py-1.5 text-white text-[11px] font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-extrabold text-zinc-400 uppercase font-sans block">IBAN / Account Number</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. GB89 APEX 9021..."
+                        value={newIban}
+                        onChange={e => setNewIban(e.target.value)}
+                        className="w-full bg-[#181a20] border border-zinc-800 rounded-lg px-2.5 py-1.5 text-white text-[11px] font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-extrabold text-zinc-400 uppercase font-sans block">Sort Code / Routing Number</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. 40-12-88"
+                        value={newSortCode}
+                        onChange={e => setNewSortCode(e.target.value)}
+                        className="w-full bg-[#181a20] border border-zinc-800 rounded-lg px-2.5 py-1.5 text-white text-[11px] font-mono"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    className="bg-emerald-550 hover:bg-emerald-600 text-slate-950 font-black py-1.5 px-4 rounded-lg uppercase tracking-wider font-sans text-[10px] transition-all cursor-pointer flex items-center gap-1 shadow-md"
+                  >
+                    <Check className="h-3 w-3" /> ADD BANK ACCOUNT
+                  </button>
+                </form>
+              </div>
             </div>
           )}
 
@@ -1316,6 +1540,40 @@ export default function AdminPortal({ currentUser, onRefreshCurrentUser, onShowN
                     className="w-full bg-amber-600 hover:bg-amber-500 text-zinc-950 font-black py-2.5 rounded-xl uppercase tracking-wider text-[10px] font-sans transition-all cursor-pointer"
                   >
                     CONFIRM PURGE
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* PURGE ALL LOGS SECURITY CONFIRMATION OVERLAY */}
+          {showClearAllConfirm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/90 backdrop-blur-md">
+              <div className="absolute inset-0" onClick={() => setShowClearAllConfirm(false)}></div>
+              <div className="w-full max-w-md relative z-10 bg-[#1c1212] border border-red-900/40 rounded-2xl shadow-2xl p-6 space-y-4">
+                <div className="text-center space-y-2">
+                  <div className="inline-flex items-center justify-center p-3 rounded-full bg-red-950/40 border border-red-900/40 text-red-500 mb-2">
+                    <Trash2 className="h-8 w-8 text-red-500 animate-pulse" />
+                  </div>
+                  <h4 className="font-extrabold text-white text-base uppercase font-sans tracking-wide">
+                    Confirm ALL Logs Purge
+                  </h4>
+                  <p className="text-xs text-zinc-400 font-sans leading-relaxed">
+                    Are you sure you want to permanently purge <span className="text-red-400 font-bold">ALL</span> transaction logs? Both demo and live transaction entries will be wiped from the network database. This action is completely <span className="text-red-400 font-bold font-extrabold">IRREVERSIBLE</span>.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <button
+                    onClick={() => setShowClearAllConfirm(false)}
+                    className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold py-2.5 rounded-xl uppercase tracking-wider text-[10px] font-sans transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleClearAllLogs}
+                    className="w-full bg-red-650 hover:bg-red-700 text-white font-black py-2.5 rounded-xl uppercase tracking-wider text-[10px] font-sans transition-all cursor-pointer"
+                  >
+                    CONFIRM PURGE ALL
                   </button>
                 </div>
               </div>

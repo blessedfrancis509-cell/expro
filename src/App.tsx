@@ -10,7 +10,7 @@ import PerformanceAnalytics from './components/PerformanceAnalytics';
 import SignalAlerts from './components/SignalAlerts';
 import ProfileSettings from './components/ProfileSettings';
 import SplashScreen from './components/SplashScreen';
-import { fetchProfileApi, fetchTransactionsApi, fetchSupportMessagesApi, sendSupportMessageApi, addTransactionApi } from './lib/api';
+import { fetchProfileApi, fetchTransactionsApi, fetchSupportMessagesApi, sendSupportMessageApi, addTransactionApi, updateProfileApi } from './lib/api';
 
 // Icons
 import {
@@ -295,6 +295,11 @@ export default function App() {
     setCurrentUser(toggledUser);
     localStorage.setItem('trading_session_user', JSON.stringify(toggledUser));
     
+    // Sync to server database
+    updateProfileApi(currentUser.email, { isDemo: toggledUser.isDemo }).catch((e) => {
+      console.warn("Failed to sync wallet state toggle to database server:", e);
+    });
+
     setActiveNotification({
       msg: `Switched account profiles securely to ${toggledUser.isDemo ? 'DEMO PAPER' : 'REAL LIVE CORP'} Wallet.`,
       type: 'info'
@@ -1329,7 +1334,10 @@ export default function App() {
           onShowNotification={(msg, type) => {
             setActiveNotification({ msg, type });
           }}
-          onClosePortal={() => setIsAdminOpen(false)}
+          onClosePortal={() => {
+            setIsAdminOpen(false);
+            handleRefreshCurrentUser();
+          }}
         />
       )}
     </div>

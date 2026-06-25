@@ -58,6 +58,14 @@ export interface Transaction {
   };
 }
 
+export interface BankAccount {
+  id: string;
+  bankName: string;
+  beneficiary: string;
+  iban: string;
+  sortCode: string;
+}
+
 export interface SystemConfig {
   bankName: string;
   beneficiary: string;
@@ -66,6 +74,7 @@ export interface SystemConfig {
   refPrefix: string;
   btcAddress: string;
   usdtAddress: string;
+  bankAccounts?: BankAccount[];
 }
 
 export interface PriceAlert {
@@ -101,4 +110,5 @@ export interface UserProfile {
   kycStatus: 'unverified' | 'pending' | 'verified';
   twoFactorEnabled: boolean;
   joinedAt: string;
+  isAdmin?: boolean;
 }
